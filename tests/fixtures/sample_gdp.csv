@@ -1,0 +1,5 @@
+entity,entity_type,region,era,year,value,source
+World,region,,current,2022,17500,World Bank WDI
+South Asia,region,,current,2022,7200,World Bank WDI
+India,major,South Asia,current,2022,8379,World Bank WDI
+India,major,South Asia,1990,1990,1806,World Bank WDI
