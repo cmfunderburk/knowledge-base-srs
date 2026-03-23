@@ -281,7 +281,7 @@ INTERVAL_MODEL = genanki.Model(
 
 DECK = genanki.Deck(
     2026032300,  # arbitrary stable deck ID
-    "Knowledge Base",
+    "Knowledge Base::Global Development Indicators",
 )
 
 # ---------------------------------------------------------------------------
@@ -465,7 +465,7 @@ def main(
     Reads each CSV from data_dir, matches filenames to indicator configs,
     generates cards, and writes the .apkg file.
     """
-    deck = genanki.Deck(2026032300, "Knowledge Base")
+    deck = genanki.Deck(2026032300, "Knowledge Base::Global Development Indicators")
 
     csv_files = sorted(data_dir.glob("*.csv"))
 
