@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from knowledge_base.config import ENTITIES, ERA_RANGES, INDICATORS
+from knowledge_base.config import DECKS, ENTITIES
 from knowledge_base.wb_api import fetch_indicator
 
 # ---------------------------------------------------------------------------
@@ -27,18 +27,20 @@ def select_best_year_for_era(
     records: list[dict],
     country_code: str,
     era: str,
+    era_ranges: dict,
 ) -> dict | None:
     """Return the best record for *country_code* within the given *era*.
 
     Args:
         records: List of dicts with keys ``country_code``, ``year``, ``value``.
         country_code: ISO-3 (or WB aggregate) code to filter on.
-        era: One of the keys in ``ERA_RANGES`` (e.g. ``"1960"``, ``"current"``).
+        era: One of the keys in ``era_ranges`` (e.g. ``"1960"``, ``"current"``).
+        era_ranges: Mapping of era name to (range_start, range_end, target_year).
 
     Returns:
         The best matching record dict, or ``None`` if nothing falls in range.
     """
-    range_start, range_end, target_year = ERA_RANGES[era]
+    range_start, range_end, target_year = era_ranges[era]
 
     # Filter to this entity and the valid year window
     candidates = [
@@ -145,17 +147,29 @@ def _handle_city_population(output_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main orchestrator
+# Core orchestrator
 # ---------------------------------------------------------------------------
 
 
-def main(output_dir: Path = Path("data")) -> None:
-    """Fetch all indicators and write per-indicator CSV files.
+def _run(deck_key: str, output_dir: Path | None = None) -> None:
+    """Fetch all indicators for *deck_key* and write per-indicator CSV files.
 
     Args:
-        output_dir: Directory to write CSV files into (created if absent).
+        deck_key: Key into ``DECKS`` (e.g. ``"development"``).
+        output_dir: Directory to write CSV files into (overrides deck data_dir).
     """
+    deck = DECKS[deck_key]
+    indicators = deck["indicators"]
+    era_ranges = deck["era_ranges"]
+
+    if output_dir is None:
+        output_dir = Path(deck["data_dir"])
+
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Derive year range from era_ranges
+    year_start = min(start for start, _, _ in era_ranges.values())
+    year_end = max(end for _, end, _ in era_ranges.values())
 
     # Build entity lookup: code → entity dict
     entity_by_code: dict[str, dict] = {}
@@ -164,7 +178,7 @@ def main(output_dir: Path = Path("data")) -> None:
         if code:
             entity_by_code[code] = entity
 
-    for indicator in INDICATORS:
+    for indicator in indicators:
         indicator_id = indicator["id"]
         print(f"Processing {indicator_id}…")
 
@@ -188,11 +202,7 @@ def main(output_dir: Path = Path("data")) -> None:
                 all_codes.append(entity["iso3"])
 
         # Determine which eras to fetch
-        eras_to_fetch = ["current"] if time_invariant else list(ERA_RANGES.keys())
-
-        # Fetch data once for the full year range
-        year_start = 1955
-        year_end = 2026
+        eras_to_fetch = ["current"] if time_invariant else list(era_ranges.keys())
 
         try:
             records = fetch_indicator(wb_code, all_codes, year_start, year_end)
@@ -211,7 +221,7 @@ def main(output_dir: Path = Path("data")) -> None:
             region = entity.get("region", "")
 
             for era in eras_to_fetch:
-                best = select_best_year_for_era(records, code, era)
+                best = select_best_year_for_era(records, code, era, era_ranges)
                 if best is None:
                     continue
                 rows.append({
@@ -230,6 +240,21 @@ def main(output_dir: Path = Path("data")) -> None:
         print(f"  wrote {len(df)} rows → {out_path}")
 
     print("Done.")
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """CLI entry point."""
+    import sys
+    if len(sys.argv) < 2:
+        print(f"Usage: fetch-data <deck_key>")
+        print(f"Available decks: {', '.join(DECKS)}")
+        raise SystemExit(1)
+    _run(sys.argv[1])
 
 
 if __name__ == "__main__":
