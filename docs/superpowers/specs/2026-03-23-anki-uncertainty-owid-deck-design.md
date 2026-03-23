@@ -53,14 +53,22 @@ Selection criteria: weighted toward countries that appear frequently in developm
 |-----------|------|
 | CO2 emissions per capita | tonnes/year |
 | Renewable share of electricity | % |
-| Energy intensity of GDP | kWh per $ of GDP |
+| Energy intensity of GDP | MJ per $ of GDP |
 
 ### Geography
 | Indicator | Unit |
 |-----------|------|
 | Population | people |
 | Land area | km² |
-| Major city populations | people |
+| Major city populations | people (metro area) |
+
+**Major city populations — details:**
+- Source: UN World Urbanization Prospects
+- Concept: metropolitan area population
+- One card per qualifying city (entities may have multiple cards if they have multiple top-100 cities)
+- Only cities in the approximate global top 100 by metro population
+- Regions are excluded — city cards are country-level only
+- Current era only (historical city data is unreliable)
 
 ## Time Periods
 
@@ -73,6 +81,8 @@ Three eras, chosen to bracket distinct development regimes:
 | Current | Most recent available | — | Present-day snapshot |
 
 Use the closest available data year within the acceptable range. Cards are generated only where data exists.
+
+**"Current" era:** The most recent available year varies by indicator and entity. The question text must include the actual data year used (e.g., "as of 2023", "in 2021"), not a generic "current" label.
 
 ### Data Availability Constraints
 - **Poverty & Gini**: sparse before ~1980. Many entities will have only 1990 + current.
@@ -110,6 +120,10 @@ OWID / World Bank WDI, retrieved 2026-03. World avg: $15,000. South Asia regiona
 OWID / World Bank WDI, retrieved 2026-03. World avg: $15,000.
 ```
 
+**Special-case indicators:**
+- **Land area:** Notes show regional total land area (for countries) or world total (for regions) as reference.
+- **Major city populations:** Notes show the country's total population for context (e.g., "Country population: 1.4B").
+
 ## Deck & Tag Structure
 
 **Single flat deck:** `Knowledge Base`
@@ -125,9 +139,13 @@ Interleaved scheduling across categories — no subdecks. All filtering via tags
 
 ## Card Count Estimate
 
-~47 entities × 14 indicators × 3 eras = ~1,974 theoretical maximum.
+**Theoretical maximum:**
+- 12 standard indicators × 47 entities × 3 eras = 1,692
+- Land area: 47 entities × 1 (time-invariant) = 47
+- Major city populations: ~30 cities × 1 (current only) = ~30
+- **Total theoretical max: ~1,769**
 
-After data availability constraints: **~1,200–1,500 cards.**
+After data availability constraints (poverty/Gini sparse pre-1980, renewables/energy intensity sparse pre-1990): **~1,200–1,500 cards.**
 
 This is a living deck designed to grow as the knowledge base expands.
 
@@ -138,3 +156,7 @@ This is a living deck designed to grow as the knowledge base expands.
 - **Model ID:** Reuse `1677887272395` from the add-on example deck so the note type merges cleanly
 - **Card templates:** Copied verbatim from the example deck (contains scoring JS)
 - **Output:** `.apkg` file
+- **GUID stability:** genanki generates note GUIDs from the first field (Front) by default. Since each question string is unique, this ensures that re-importing an updated deck merges changes rather than creating duplicates. Consequence: if a question is reworded, it creates a new card rather than updating the existing one. This is acceptable — reworded questions are effectively new cards.
+
+### v2 Considerations
+- **Per-indicator accuracy multipliers:** The `Desired accuracy multiplier` field is left at default (1) for v1. Indicators with very different natural scales (e.g., GDP per capita spans 3+ orders of magnitude vs. life expectancy spanning <1) may benefit from tuned multipliers in a future iteration.
