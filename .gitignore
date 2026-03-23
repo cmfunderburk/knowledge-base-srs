@@ -1,0 +1,4 @@
+data/*.csv
+*.apkg
+__pycache__/
+.venv/
