@@ -13,7 +13,7 @@ DECKS = {
     "development": {
         "name": "Knowledge Base::Global Development Indicators",
         "deck_id": 2026032300,
-        "output": "knowledge_base_development.apkg",
+        "output": "knowledge_base.apkg",       # unchanged for backward compat
         "data_dir": "data/development",
         "era_ranges": { ... },   # existing 3 eras
         "indicators": [ ... ],   # existing 14 indicators
@@ -28,6 +28,8 @@ DECKS = {
     },
 }
 ```
+
+The development deck keeps `output: "knowledge_base.apkg"` for backward compatibility — users who have already imported it into Anki will get updates rather than a duplicate deck.
 
 ### CLI Changes
 
@@ -51,11 +53,37 @@ Each deck's CSVs are isolated in their own subdirectory:
 
 ### Code Changes
 
-- **`config.py`**: Current `ERA_RANGES` and `INDICATORS` move into `DECKS["development"]`. New `DECKS["tech_adoption"]` added. `ENTITIES`, `REGIONS` stay top-level. `ANSWER_DECIMALS` moves into each indicator dict (or each deck's config).
-- **`fetch_data.py`**: `main(deck_key)` looks up `DECKS[deck_key]` for indicators, era_ranges, and data_dir.
-- **`build_deck.py`**: `main(deck_key)` uses deck config for deck name, deck ID, output path, indicators, and answer decimals.
+- **`config.py`**:
+  - Current top-level `ERA_RANGES` and `INDICATORS` move into `DECKS["development"]`.
+  - New `DECKS["tech_adoption"]` added with its 6 indicators and 4 eras.
+  - `ENTITIES` and `REGIONS` stay top-level (shared across all decks).
+  - Each indicator dict gets a `decimals` field (replaces the `ANSWER_DECIMALS` dict in `build_deck.py`) and a `unit_prefix` field (replaces the `UNIT_PREFIX` dict; default `""`; only `gdp_pc_ppp` uses `"$"`).
+
+- **`fetch_data.py`**:
+  - `main(deck_key)` looks up `DECKS[deck_key]` for indicators, era_ranges, and data_dir.
+  - `select_best_year_for_era()` gets an `era_ranges` parameter instead of reading the module-level global.
+  - `year_start` derived from the deck's era_ranges: `min(start for start, _, _ in era_ranges.values())`.
+  - CLI wrapper uses `sys.argv[1]` to get deck key; prints available keys on missing/invalid argument.
+
+- **`build_deck.py`**:
+  - `main(deck_key)` constructs the deck from config: `genanki.Deck(deck_cfg["deck_id"], deck_cfg["name"])`.
+  - `_INDICATOR_BY_ID` built per-invocation from `deck_cfg["indicators"]` (not a module-level global).
+  - `ANSWER_DECIMALS` and `UNIT_PREFIX` dicts removed — replaced by `decimals` and `unit_prefix` fields on each indicator dict.
+  - Dead module-level `DECK` constant removed.
+  - CLI wrapper uses `sys.argv[1]` to get deck key.
+
 - **`wb_api.py`**: Unchanged.
-- **Tests**: Update to access indicators/eras via `DECKS` dict rather than top-level globals.
+
+- **`pyproject.toml`**: Entry point functions stay the same (`fetch_data:main`, `build_deck:main`) but `main()` now reads `sys.argv[1]` for the deck key.
+
+- **Tests**: Update imports — tests that reference `INDICATORS` or `ERA_RANGES` directly now access them via `DECKS["development"]`. `test_fetch_data.py` tests for `select_best_year_for_era` pass an explicit `era_ranges` dict.
+
+### Migration Steps
+
+1. Move existing `data/*.csv` → `data/development/`
+2. Update `.gitignore` from `data/*.csv` to `data/**/*.csv`
+3. Remove `data/.gitkeep`, add `data/development/.gitkeep` and `data/tech_adoption/.gitkeep`
+4. Delete the orphaned `knowledge_base.apkg` in the repo root (gitignored, but clean up)
 
 ## Entity Selection
 
@@ -90,7 +118,7 @@ All sourced from World Bank WDI. No new data sources required. None are time-inv
 - **Internet users**: Patchy in 1990 (most countries report 0 or null). Good from 2000.
 - **Mobile subscriptions**: Available from 1990 for most countries. Values > 100 are common (multiple SIMs per person).
 - **Broadband**: Essentially nonexistent in 1990. Starts ~2000 for developed countries, ~2005 for developing.
-- **R&D expenditure**: Sparse — mostly OECD and major economies. Many long-tail countries will have gaps.
+- **R&D expenditure**: Sparse — mostly OECD and major economies. Many long-tail countries will have gaps. Regional aggregates incomplete (Sub-Saharan Africa returns no data; Latin America and South Asia patchy).
 - **High-tech exports**: Decent from 2000. Some countries report 0 or null.
 - **Electricity access**: Good from 2000. Interesting variation in developing countries.
 
