@@ -1,17 +1,15 @@
 """End-to-end: fixture CSVs → .apkg file."""
 from pathlib import Path
 
-from knowledge_base.build_deck import main as build_main
+from knowledge_base.build_deck import _run
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_build_deck_from_fixtures(tmp_path):
-    """Build a deck from the test fixture CSVs and verify the .apkg is created."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
 
-    # Copy both fixtures
     for fixture_name, csv_name in [
         ("sample_gdp.csv", "gdp_pc_ppp.csv"),
         ("sample_city_population.csv", "city_population.csv"),
@@ -22,7 +20,7 @@ def test_build_deck_from_fixtures(tmp_path):
 
     output_path = tmp_path / "test_deck.apkg"
 
-    build_main(data_dir=data_dir, output_path=output_path)
+    _run("development", data_dir=data_dir, output_path=output_path)
 
     assert output_path.exists()
     assert output_path.stat().st_size > 0

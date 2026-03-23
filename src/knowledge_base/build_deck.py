@@ -13,14 +13,7 @@ from pathlib import Path
 import genanki
 import polars as pl
 
-from knowledge_base.config import INDICATORS
-
-# ---------------------------------------------------------------------------
-# Unit prefix mapping: indicator_id -> prefix string for notes formatting
-# ---------------------------------------------------------------------------
-UNIT_PREFIX: dict[str, str] = {
-    "gdp_pc_ppp": "$",
-}
+from knowledge_base.config import DECKS, ENTITIES
 
 # ---------------------------------------------------------------------------
 # Anki card templates
@@ -279,17 +272,6 @@ INTERVAL_MODEL = genanki.Model(
     css=CSS,
 )
 
-DECK = genanki.Deck(
-    2026032300,  # arbitrary stable deck ID
-    "Knowledge Base::Global Development Indicators",
-)
-
-# ---------------------------------------------------------------------------
-# Build indicator lookup from config
-# ---------------------------------------------------------------------------
-_INDICATOR_BY_ID: dict[str, dict] = {ind["id"]: ind for ind in INDICATORS}
-
-
 # ---------------------------------------------------------------------------
 # Public functions
 # ---------------------------------------------------------------------------
@@ -322,31 +304,9 @@ def compute_reference_averages(
     return world_avg, region_avgs
 
 
-# Decimal places per indicator for answer rounding.
-# Integers (0): population, land_area, city_population, gdp_pc_ppp
-# 1 decimal: percentages, life expectancy, mortality, gini, energy_intensity
-# 2 decimals: fertility_rate, co2_per_capita (small values need more precision)
-ANSWER_DECIMALS: dict[str, int] = {
-    "gdp_pc_ppp": 0,
-    "poverty_headcount": 1,
-    "gini": 1,
-    "trade_pct_gdp": 1,
-    "life_expectancy": 1,
-    "under5_mortality": 1,
-    "maternal_mortality": 1,
-    "fertility_rate": 2,
-    "co2_per_capita": 2,
-    "renewable_electricity": 1,
-    "energy_intensity": 1,
-    "population": 0,
-    "land_area": 0,
-    "city_population": 0,
-}
-
-
-def format_answer(value: float, indicator_id: str) -> str:
+def format_answer(value: float, indicator: dict) -> str:
     """Round and format a numerical answer for the card."""
-    decimals = ANSWER_DECIMALS.get(indicator_id, 1)
+    decimals = indicator.get("decimals", 1)
     rounded = round(value, decimals)
     if decimals == 0:
         return str(int(rounded))
@@ -448,35 +408,42 @@ def build_tags(
 
 def _find_entity_config(entity_name: str) -> dict | None:
     """Look up entity config by name from ENTITIES."""
-    from knowledge_base.config import ENTITIES
-
     for e in ENTITIES:
         if e["name"] == entity_name:
             return e
     return None
 
 
-def main(
-    data_dir: Path = Path("data"),
-    output_path: Path = Path("knowledge_base.apkg"),
+def _run(
+    deck_key: str,
+    data_dir: Path | None = None,
+    output_path: Path | None = None,
 ) -> None:
     """Build the Anki deck from CSV data files.
 
     Reads each CSV from data_dir, matches filenames to indicator configs,
     generates cards, and writes the .apkg file.
     """
-    deck = genanki.Deck(2026032300, "Knowledge Base::Global Development Indicators")
+    if deck_key not in DECKS:
+        raise KeyError(f"Unknown deck key: {deck_key!r}. Available: {list(DECKS)}")
 
-    csv_files = sorted(data_dir.glob("*.csv"))
+    deck_cfg = DECKS[deck_key]
+    indicator_by_id = {ind["id"]: ind for ind in deck_cfg["indicators"]}
+    resolved_data_dir = data_dir or Path(deck_cfg["data_dir"])
+    resolved_output_path = output_path or Path(deck_cfg["output"])
+
+    deck = genanki.Deck(deck_cfg["deck_id"], deck_cfg["name"])
+
+    csv_files = sorted(resolved_data_dir.glob("*.csv"))
 
     for csv_path in csv_files:
         indicator_id = csv_path.stem
-        indicator = _INDICATOR_BY_ID.get(indicator_id)
+        indicator = indicator_by_id.get(indicator_id)
         if indicator is None:
             continue
 
         df = pl.read_csv(csv_path)
-        unit_prefix = UNIT_PREFIX.get(indicator_id, "")
+        unit_prefix = indicator.get("unit_prefix", "")
         is_city = indicator_id == "city_population"
         is_land_area = indicator_id == "land_area"
 
@@ -556,7 +523,7 @@ def main(
                     world_avg=world_avg,
                     regional_avg=regional_avg,
                     unit_prefix=unit_prefix,
-                    decimals=ANSWER_DECIMALS.get(indicator_id, 1),
+                    decimals=indicator.get("decimals", 1),
                 )
 
             # Build tags
@@ -573,7 +540,7 @@ def main(
                 model=INTERVAL_MODEL,
                 fields=[
                     question,
-                    format_answer(value, indicator_id),
+                    format_answer(value, indicator),
                     notes,
                     "1",  # Desired accuracy multiplier
                 ],
@@ -582,4 +549,15 @@ def main(
             deck.add_note(note)
 
     package = genanki.Package(deck)
-    package.write_to_file(str(output_path))
+    package.write_to_file(str(resolved_output_path))
+
+
+def main() -> None:
+    """CLI entry point: build a deck by key."""
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: build-deck <deck_key>")
+        print(f"Available decks: {', '.join(DECKS)}")
+        raise SystemExit(1)
+    _run(sys.argv[1])
