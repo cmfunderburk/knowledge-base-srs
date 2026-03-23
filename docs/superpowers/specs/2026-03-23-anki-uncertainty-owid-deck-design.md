@@ -149,13 +149,68 @@ After data availability constraints (poverty/Gini sparse pre-1980, renewables/en
 
 This is a living deck designed to grow as the knowledge base expands.
 
-## Technical Implementation
+## Data Pipeline
 
-- **Generation tool:** genanki (Python), managed with uv
-- **Data sources:** OWID / World Bank WDI (primary), supplemented as needed
+```
+fetch_data.py  →  data/*.csv  →  build_deck.py  →  knowledge_base.apkg
+(download/clean)   (curated)     (genanki)         (import to Anki)
+```
+
+### Stage 1: `fetch_data.py` — Download & Clean
+
+Fetches raw data from source APIs, filters to the target entities and eras, and writes one CSV per indicator to `data/`.
+
+**Sources:**
+- **World Bank API** (no auth required): GDP per capita, poverty headcount, Gini, trade/GDP, life expectancy, under-5 mortality, maternal mortality, fertility rate, CO2 per capita, renewable electricity share, energy intensity, population, land area
+- **UN World Urbanization Prospects** (downloadable CSV/Excel): major city populations
+
+**Output format — one CSV per indicator**, e.g. `data/gdp_pc_ppp.csv`:
+
+```csv
+entity,entity_type,region,era,year,value,source
+India,major,South Asia,1960,1961,682,World Bank WDI
+India,major,South Asia,1990,1990,1806,World Bank WDI
+India,major,South Asia,current,2022,8379,World Bank WDI
+South Asia,region,,1960,1961,594,World Bank WDI
+...
+```
+
+Columns:
+- `entity`: display name (must match across all indicator files)
+- `entity_type`: `region`, `major`, or `long_tail`
+- `region`: the entity's parent region (blank for regions themselves)
+- `era`: `1960`, `1990`, or `current`
+- `year`: actual data year used
+- `value`: the numerical answer
+- `source`: attribution string for the Notes field
+
+This format makes manual additions straightforward — add a row to the relevant CSV.
+
+### Stage 2: `build_deck.py` — Generate .apkg
+
+Reads all CSVs from `data/`, generates question text and Notes field content, and produces the `.apkg` file using genanki.
+
+Responsibilities:
+- Load all indicator CSVs and compute reference-class averages (world avg, regional avg) for the Notes field
+- Generate the `Front` field using the natural language template with explicit units and actual data year
+- Generate the `Notes` field with source + reference class comparisons
+- Assign tags per the tag schema
+- Write the `.apkg` using the Interval note type (model ID `1677887272395`)
+
+### Refresh Workflow
+
+To update the deck with newer data:
+1. Re-run `fetch_data.py` (overwrites `data/*.csv` with latest)
+2. Optionally hand-edit any CSVs (corrections, manual additions)
+3. Re-run `build_deck.py` to regenerate the `.apkg`
+4. Import into Anki — GUID stability ensures existing cards are updated, not duplicated
+
+## Technical Details
+
+- **Package manager:** uv
+- **Generation library:** genanki
 - **Model ID:** Reuse `1677887272395` from the add-on example deck so the note type merges cleanly
 - **Card templates:** Copied verbatim from the example deck (contains scoring JS)
-- **Output:** `.apkg` file
 - **GUID stability:** genanki generates note GUIDs from the first field (Front) by default. Since each question string is unique, this ensures that re-importing an updated deck merges changes rather than creating duplicates. Consequence: if a question is reworded, it creates a new card rather than updating the existing one. This is acceptable — reworded questions are effectively new cards.
 
 ### v2 Considerations
