@@ -322,6 +322,37 @@ def compute_reference_averages(
     return world_avg, region_avgs
 
 
+# Decimal places per indicator for answer rounding.
+# Integers (0): population, land_area, city_population, gdp_pc_ppp
+# 1 decimal: percentages, life expectancy, mortality, gini, energy_intensity
+# 2 decimals: fertility_rate, co2_per_capita (small values need more precision)
+ANSWER_DECIMALS: dict[str, int] = {
+    "gdp_pc_ppp": 0,
+    "poverty_headcount": 1,
+    "gini": 1,
+    "trade_pct_gdp": 1,
+    "life_expectancy": 1,
+    "under5_mortality": 1,
+    "maternal_mortality": 1,
+    "fertility_rate": 2,
+    "co2_per_capita": 2,
+    "renewable_electricity": 1,
+    "energy_intensity": 1,
+    "population": 0,
+    "land_area": 0,
+    "city_population": 0,
+}
+
+
+def format_answer(value: float, indicator_id: str) -> str:
+    """Round and format a numerical answer for the card."""
+    decimals = ANSWER_DECIMALS.get(indicator_id, 1)
+    rounded = round(value, decimals)
+    if decimals == 0:
+        return str(int(rounded))
+    return f"{rounded:.{decimals}f}"
+
+
 def generate_question(
     entity: str,
     indicator_name: str,
@@ -344,9 +375,13 @@ def generate_question(
         )
 
 
-def _format_number(value: float | int, prefix: str = "") -> str:
+def _format_number(
+    value: float | int, prefix: str = "", decimals: int = 0
+) -> str:
     """Format a number with commas and an optional prefix."""
-    return f"{prefix}{value:,.0f}"
+    if decimals == 0:
+        return f"{prefix}{value:,.0f}"
+    return f"{prefix}{value:,.{decimals}f}"
 
 
 def generate_notes(
@@ -354,6 +389,7 @@ def generate_notes(
     world_avg: float | None,
     regional_avg: float | None,
     unit_prefix: str = "",
+    decimals: int = 0,
 ) -> str:
     """Produce the Notes field with source and reference comparisons.
 
@@ -362,9 +398,11 @@ def generate_notes(
     """
     parts = [f"Source: {source}"]
     if world_avg is not None:
-        formatted_world = _format_number(world_avg, unit_prefix)
+        formatted_world = _format_number(world_avg, unit_prefix, decimals)
         if regional_avg is not None:
-            formatted_regional = _format_number(regional_avg, unit_prefix)
+            formatted_regional = _format_number(
+                regional_avg, unit_prefix, decimals
+            )
             parts.append(
                 f"World avg: {formatted_world}, regional avg: {formatted_regional}"
             )
@@ -518,6 +556,7 @@ def main(
                     world_avg=world_avg,
                     regional_avg=regional_avg,
                     unit_prefix=unit_prefix,
+                    decimals=ANSWER_DECIMALS.get(indicator_id, 1),
                 )
 
             # Build tags
@@ -534,7 +573,7 @@ def main(
                 model=INTERVAL_MODEL,
                 fields=[
                     question,
-                    str(int(value)) if value == int(value) else str(value),
+                    format_answer(value, indicator_id),
                     notes,
                     "1",  # Desired accuracy multiplier
                 ],
