@@ -117,24 +117,25 @@ def _handle_city_population(output_dir: Path) -> None:
     rows: list[dict] = []
     for row in df_filtered.iter_rows(named=True):
         # Resolve entity name from iso3
-        entity_name = row.get("city_name", row.get("name", ""))
-        country_iso3 = row.get("country_iso3", "")
+        city_name = row["city"]
+        country_iso3 = row["country_iso3"]
 
         # Find the country entity to get region / entity_type
         country_entity = next(
             (e for e in ENTITIES if e.get("iso3") == country_iso3), None
         )
-        region = country_entity.get("region", "") if country_entity else ""
-        entity_type = "city"
+        if country_entity is None:
+            continue
+        region = country_entity.get("region", "")
 
         rows.append({
-            "entity": entity_name,
-            "entity_type": entity_type,
+            "entity": city_name,
+            "entity_type": country_entity["entity_type"],
             "region": region,
             "era": "current",
-            "year": int(row.get("year", 0)),
-            "value": float(row.get("population", row.get("value", 0))),
-            "source": "UN WUP",
+            "year": int(row["year"]),
+            "value": float(row["population"]),
+            "source": row["source"],
         })
 
     df_out = build_indicator_dataframe(rows)
