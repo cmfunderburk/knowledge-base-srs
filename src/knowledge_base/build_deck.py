@@ -97,7 +97,9 @@ AFMT = r"""{{Front}}
 
 		var interval = window.INTERVAL_TEXT
 
-		var parts = interval.split("-").map(part => part.trim())
+		// Parse range, handling negative numbers (e.g., "-6--2", "-3-5", "3-10")
+		var rangeMatch = interval.match(/^\s*(-?\d+\.?\d*)\s*-\s*(-?\d+\.?\d*)\s*$/)
+		var parts = rangeMatch ? [rangeMatch[1], rangeMatch[2]] : [interval.trim()]
 
 		var accuracyMultiplier = String.raw`{{Desired accuracy multiplier}}` || "1"
 
