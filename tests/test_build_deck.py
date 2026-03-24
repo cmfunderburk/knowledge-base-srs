@@ -8,6 +8,7 @@ from knowledge_base.build_deck import (
     generate_notes_land_area,
     compute_reference_averages,
     build_tags,
+    format_answer,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -96,3 +97,15 @@ def test_generate_notes_land_area():
     )
     assert "World Bank WDI" in notes
     assert "30,370,000" in notes
+
+
+def test_format_answer_with_scale_factor():
+    indicator = {"decimals": 1, "scale_factor": 1_000_000_000}
+    result = format_answer(2_345_000_000, indicator)
+    assert result == "2.3"
+
+
+def test_format_answer_default_scale_factor():
+    indicator = {"decimals": 0}
+    result = format_answer(8379, indicator)
+    assert result == "8379"

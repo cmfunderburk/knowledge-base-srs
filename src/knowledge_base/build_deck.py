@@ -306,8 +306,10 @@ def compute_reference_averages(
 
 def format_answer(value: float, indicator: dict) -> str:
     """Round and format a numerical answer for the card."""
+    scale_factor = indicator.get("scale_factor", 1)
     decimals = indicator.get("decimals", 1)
-    rounded = round(value, decimals)
+    scaled = value / scale_factor
+    rounded = round(scaled, decimals)
     if decimals == 0:
         return str(int(rounded))
     return f"{rounded:.{decimals}f}"
