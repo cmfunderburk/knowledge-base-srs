@@ -68,3 +68,20 @@ def test_tech_adoption_deck_exists():
     assert "2000" in eras
     assert "2010" in eras
     assert "current" in eras
+
+
+def test_conflict_security_deck_exists():
+    assert "conflict_security" in DECKS
+    deck = DECKS["conflict_security"]
+    assert len(deck["indicators"]) == 7
+    eras = deck["era_ranges"]
+    assert "1960" in eras
+    assert "1990" in eras
+    assert "current" in eras
+    # Verify scale_factor on indicators that need it
+    indicators_by_id = {i["id"]: i for i in deck["indicators"]}
+    assert indicators_by_id["mil_expenditure_usd"]["scale_factor"] == 1_000_000_000
+    assert indicators_by_id["armed_forces"]["scale_factor"] == 1_000
+    assert indicators_by_id["arms_imports"]["scale_factor"] == 1_000_000
+    assert indicators_by_id["refugees_origin"]["scale_factor"] == 1_000
+    assert indicators_by_id["refugees_asylum"]["scale_factor"] == 1_000
