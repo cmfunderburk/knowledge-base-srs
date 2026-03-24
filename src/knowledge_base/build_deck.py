@@ -498,9 +498,10 @@ def _run(
             # Generate notes
             if is_city:
                 country_pop = row.get("country_population", 0)
+                scale_factor = indicator.get("scale_factor", 1)
                 notes = generate_notes_city(
                     source=source,
-                    country_population=country_pop,
+                    country_population=country_pop / scale_factor,
                 )
             elif is_land_area:
                 world_avg, region_avgs = ref_by_era.get(
@@ -520,10 +521,13 @@ def _run(
                 )
                 region_name = entity_cfg.get("region", "")
                 regional_avg = region_avgs.get(region_name)
+                scale_factor = indicator.get("scale_factor", 1)
+                scaled_world = world_avg / scale_factor if world_avg is not None else None
+                scaled_regional = regional_avg / scale_factor if regional_avg is not None else None
                 notes = generate_notes(
                     source=source,
-                    world_avg=world_avg,
-                    regional_avg=regional_avg,
+                    world_avg=scaled_world,
+                    regional_avg=scaled_regional,
                     unit_prefix=unit_prefix,
                     decimals=indicator.get("decimals", 1),
                 )
