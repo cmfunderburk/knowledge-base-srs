@@ -92,7 +92,15 @@ def _column_schema() -> dict[str, type]:
 # ---------------------------------------------------------------------------
 
 def _handle_city_population(output_dir: Path) -> None:
-    """Read UN WUP city data from the bundled CSV and write output CSV."""
+    """Read UN WUP city data from the bundled CSV and write output CSV.
+
+    The city_population CSV has two extra columns beyond the standard schema:
+    - ``city``: the city name (used as the question entity in build_deck)
+    - ``country_population``: the country's total population (used in Notes)
+
+    The ``entity`` column stores the *country* name so that build_deck can
+    look it up in ENTITIES for tagging and region assignment.
+    """
     resources_dir = Path(__file__).parent.parent.parent / "resources"
     csv_path = resources_dir / "un_wup_cities.csv"
 
@@ -102,6 +110,15 @@ def _handle_city_population(output_dir: Path) -> None:
             stacklevel=2,
         )
         return
+
+    # Load country populations from the already-fetched population CSV
+    pop_csv = output_dir / "population.csv"
+    country_pops: dict[str, float] = {}
+    if pop_csv.exists():
+        df_pop = pl.read_csv(pop_csv)
+        current_pop = df_pop.filter(pl.col("era") == "current")
+        for row in current_pop.iter_rows(named=True):
+            country_pops[row["entity"]] = row["value"]
 
     # Collect iso3 codes for all country entities
     entity_iso3_set = {
@@ -115,32 +132,38 @@ def _handle_city_population(output_dir: Path) -> None:
         pl.col("country_iso3").is_in(list(entity_iso3_set))
     )
 
-    # Build rows in the standard format
+    # Build rows with city and country_population extra columns
     rows: list[dict] = []
     for row in df_filtered.iter_rows(named=True):
-        # Resolve entity name from iso3
         city_name = row["city"]
         country_iso3 = row["country_iso3"]
 
-        # Find the country entity to get region / entity_type
+        # Find the country entity to get name / region / entity_type
         country_entity = next(
             (e for e in ENTITIES if e.get("iso3") == country_iso3), None
         )
         if country_entity is None:
             continue
+
+        country_name = country_entity["name"]
         region = country_entity.get("region", "")
+        country_pop = country_pops.get(country_name, 0)
 
         rows.append({
-            "entity": city_name,
+            "entity": country_name,
             "entity_type": country_entity["entity_type"],
             "region": region,
             "era": "current",
             "year": int(row["year"]),
             "value": float(row["population"]),
             "source": row["source"],
+            "city": city_name,
+            "country_population": country_pop,
         })
 
-    df_out = build_indicator_dataframe(rows)
+    # Write directly (not through build_indicator_dataframe which strips
+    # the extra city/country_population columns)
+    df_out = pl.DataFrame(rows)
     out_path = output_dir / "city_population.csv"
     df_out.write_csv(out_path)
     print(f"  wrote {len(df_out)} rows → {out_path}")
