@@ -36,6 +36,19 @@ Programmatic generation of [Anki with Uncertainty](https://github.com/Sage-Futur
 
 **Time periods:** Decade intervals from 1990 to present, capturing the internet boom and mobile revolution.
 
+### Conflict & Security
+
+**~450–600 cards** covering 7 indicators across 47 entities and 3 time periods (~1960, ~1990, current).
+
+| Category | Indicators |
+|----------|-----------|
+| Military | Military expenditure (% of GDP), military expenditure (USD), armed forces personnel, arms imports |
+| Security | Intentional homicides, refugees by country of origin, refugees by country of asylum |
+
+**Data source:** World Bank WDI (API).
+
+**Time periods:** Cold War baseline (~1960), end of Cold War (~1990), and current — bracketing the Cold War, post-Cold War drawdown, and present-day security landscape.
+
 ---
 
 Each card includes reference-class context in the notes field (world average + regional average) to support Fermi-style reasoning.
@@ -62,6 +75,8 @@ uv run fetch-data development    # download data → data/development/*.csv
 uv run fetch-data tech_adoption  # download data → data/tech_adoption/*.csv
 uv run build-deck development    # generate knowledge_base.apkg
 uv run build-deck tech_adoption  # generate knowledge_base_tech_adoption.apkg
+uv run fetch-data conflict_security  # download data → data/conflict_security/*.csv
+uv run build-deck conflict_security  # generate knowledge_base_conflict_security.apkg
 uv run pytest                    # run tests (25 tests)
 ```
 
@@ -71,7 +86,7 @@ Requires the [Anki with Uncertainty](https://www.quantifiedintuitions.org/anki-w
 
 All cards in each deck use interleaved scheduling. Filtering via tags:
 
-- `category::development`, `category::health`, `category::energy`, `category::geography`, `category::technology`
+- `category::development`, `category::health`, `category::energy`, `category::geography`, `category::technology`, `category::military`, `category::security`
 - `indicator::gdp_pc_ppp`, `indicator::internet_users`, etc.
 - `entity::india`, `entity::sub_saharan_africa`, etc.
 - `entity_type::region`, `entity_type::major`, `entity_type::long_tail`
@@ -88,6 +103,7 @@ src/knowledge_base/
 data/
     development/     # Curated CSVs for development deck (gitignored)
     tech_adoption/   # Curated CSVs for tech adoption deck (gitignored)
+    conflict_security/ # Curated CSVs for conflict & security deck (gitignored)
 resources/           # Bundled data (UN WUP cities CSV, example deck)
 tests/               # 25 tests
 docs/superpowers/
