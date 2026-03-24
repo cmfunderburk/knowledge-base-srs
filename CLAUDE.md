@@ -13,7 +13,7 @@ uv run build-deck <deck_key>     # generate .apkg from CSVs
 uv run pytest                    # 25 tests
 ```
 
-Available deck keys: `development`, `tech_adoption`, `conflict_security`
+Available deck keys: `development`, `tech_adoption`, `conflict_security`, `finance`
 
 ## Architecture
 
