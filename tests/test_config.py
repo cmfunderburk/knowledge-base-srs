@@ -70,6 +70,23 @@ def test_tech_adoption_deck_exists():
     assert "current" in eras
 
 
+def test_finance_deck_exists():
+    assert "finance" in DECKS
+    deck = DECKS["finance"]
+    assert len(deck["indicators"]) == 8
+    eras = deck["era_ranges"]
+    assert "1960" in eras
+    assert "1990" in eras
+    assert "current" in eras
+    # Verify scale_factor on absolute-value indicators
+    indicators_by_id = {i["id"]: i for i in deck["indicators"]}
+    assert indicators_by_id["reserves"]["scale_factor"] == 1_000_000_000
+    assert indicators_by_id["remittances"]["scale_factor"] == 1_000_000_000
+    # Verify categories
+    categories = {i["category"] for i in deck["indicators"]}
+    assert categories == {"macro", "financial_system"}
+
+
 def test_conflict_security_deck_exists():
     assert "conflict_security" in DECKS
     deck = DECKS["conflict_security"]
