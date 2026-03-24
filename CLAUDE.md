@@ -10,7 +10,7 @@ Multi-deck Anki flashcard generator for calibration training using the [Anki wit
 uv sync                          # install deps
 uv run fetch-data <deck_key>     # fetch from World Bank API → data/<deck>/*.csv
 uv run build-deck <deck_key>     # generate .apkg from CSVs
-uv run pytest                    # 25 tests
+uv run pytest                    # 29 tests
 ```
 
 Available deck keys: `development`, `tech_adoption`, `conflict_security`, `finance`
@@ -27,7 +27,7 @@ Two-stage pipeline: `fetch-data` → CSVs → `build-deck` → `.apkg`
 ## Adding a New Deck
 
 1. Add a new entry to `DECKS` in `config.py` with: name, deck_id (unique int), output filename, data_dir, era_ranges, and indicators list
-2. Each indicator needs: id, name, category, unit_label, wb_code, decimals, unit_prefix, time_invariant, current_only, has_regional_aggregates
+2. Each indicator needs: id, name, category, unit_label, wb_code, decimals, unit_prefix, time_invariant, current_only, has_regional_aggregates. Optional: `scale_factor` (int, default 1) — divides raw API values at build time for large absolute values (e.g., `1_000_000_000` for billions)
 3. Create `data/<new_deck>/.gitkeep`
 4. Run `uv run fetch-data <new_deck>` then `uv run build-deck <new_deck>`
 
