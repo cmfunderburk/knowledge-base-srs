@@ -34,7 +34,7 @@ Two-stage pipeline: `fetch-data` → CSVs → `build-deck` → `.apkg`
 ## Key Constraints
 
 - **Model ID `1677887272395`** must be reused — it's the Interval note type from the add-on
-- **Card templates** (QFMT/AFMT in build_deck.py) contain scoring JavaScript — do not modify
+- **Card templates** (QFMT/AFMT in build_deck.py) contain Greenberg scoring JavaScript — do not modify the scoring algorithm. Input parsing (range extraction) has been fixed to handle negative numbers and can be maintained.
 - **GUID stability** — genanki hashes the Front field. Rewording a question creates a new card, not an update
 - **World Bank API quirks** — some indicators rebased (2021 PPP, $3.00/day poverty line). CO2 uses `EN.GHG.CO2.PC.CE.AR5` (old indicator deleted). Gini has no regional aggregates.
 
