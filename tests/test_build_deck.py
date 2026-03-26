@@ -153,11 +153,8 @@ def test_generate_cloze_content_wb():
     assert "190 countries" in content
     assert "GDP per capita (PPP)" in content
     assert "2024" in content
-    assert "{{c1::" in content
-    assert "{{c2::" in content
-    assert "{{c3::" in content
-    assert "{{c4::" in content
-    assert "{{c5::" in content
+    assert content.count("{{c1::") == 5
+    assert "{{c2::" not in content
     assert "Burundi" in content
     assert "Luxembourg" in content
     assert "$878" in content or "$878" in content

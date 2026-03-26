@@ -476,10 +476,10 @@ def generate_cloze_content(row: dict) -> str:
     return (
         f"Across all {population}, {name} as of {year} "
         f"ranges from {{{{c1::{fmt_min}}}}} ({row['min_entity']}) "
-        f"to {{{{c2::{fmt_max}}}}} ({row['max_entity']}), "
-        f"with a mean of {{{{c3::{fmt_mean}}}}}, "
-        f"median of {{{{c4::{fmt_median}}}}}, "
-        f"and standard deviation of {{{{c5::{fmt_std}}}}}."
+        f"to {{{{c1::{fmt_max}}}}} ({row['max_entity']}), "
+        f"with a mean of {{{{c1::{fmt_mean}}}}}, "
+        f"median of {{{{c1::{fmt_median}}}}}, "
+        f"and standard deviation of {{{{c1::{fmt_std}}}}}."
     )
 
 
