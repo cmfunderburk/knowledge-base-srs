@@ -1,4 +1,4 @@
-from knowledge_base.config import DECKS, ENTITIES, REGIONS
+from knowledge_base.config import DECKS, ENTITIES, REGIONS, URBAN_ENTITIES
 
 
 def test_all_entities_have_required_fields():
@@ -32,7 +32,8 @@ def test_all_indicators_have_required_fields():
             assert "unit_label" in ind
             assert "decimals" in ind, f"deck {key}: {ind['id']} missing decimals"
             assert "unit_prefix" in ind, f"deck {key}: {ind['id']} missing unit_prefix"
-            assert "wb_code" in ind or ind["id"] == "city_population"
+            if key != "urban_areas":
+                assert "wb_code" in ind
 
 
 def test_region_names_consistent():
@@ -57,7 +58,7 @@ def test_era_ranges_format():
 
 def test_development_deck_exists():
     assert "development" in DECKS
-    assert len(DECKS["development"]["indicators"]) == 14
+    assert len(DECKS["development"]["indicators"]) == 13
 
 
 def test_tech_adoption_deck_exists():
@@ -102,3 +103,60 @@ def test_conflict_security_deck_exists():
     assert indicators_by_id["arms_imports"]["scale_factor"] == 1_000_000
     assert indicators_by_id["refugees_origin"]["scale_factor"] == 1_000
     assert indicators_by_id["refugees_asylum"]["scale_factor"] == 1_000
+
+
+def test_urban_entities_have_required_fields():
+    for e in URBAN_ENTITIES:
+        if e["entity_type"] == "city":
+            assert "uc_id" in e, f"{e['name']} missing uc_id"
+            assert "name" in e, f"entity missing name"
+            assert "country" in e, f"{e['name']} missing country"
+            assert "income_group" in e, f"{e['name']} missing income_group"
+            assert "tag_slug" in e, f"{e['name']} missing tag_slug"
+            assert "entity_type" in e
+        elif e["entity_type"] == "aggregate":
+            assert "name" in e
+            assert "tag_slug" in e
+
+
+def test_urban_entities_count():
+    cities = [e for e in URBAN_ENTITIES if e["entity_type"] == "city"]
+    aggregates = [e for e in URBAN_ENTITIES if e["entity_type"] == "aggregate"]
+    assert len(cities) == 50
+    assert len(aggregates) >= 4
+
+
+def test_urban_deck_exists():
+    assert "urban_areas" in DECKS
+    deck = DECKS["urban_areas"]
+    assert deck["name"] == "Knowledge Base::Urban Areas"
+    assert len(deck["indicators"]) == 6
+    assert "entities" in deck
+    assert deck["reference_entity"] == "All Cities"
+    assert deck["reference_entity_type"] == "aggregate"
+
+
+def test_urban_deck_eras():
+    eras = DECKS["urban_areas"]["era_ranges"]
+    assert set(eras.keys()) == {"1990", "2000", "2010", "2020", "2025"}
+    for era, rng in eras.items():
+        year = int(era)
+        assert rng == (year, year, year)
+
+
+def test_urban_indicators_have_ghsl_fields():
+    for ind in DECKS["urban_areas"]["indicators"]:
+        assert "ghsl_table" in ind, f"{ind['id']} missing ghsl_table"
+        assert "ghsl_column" in ind, f"{ind['id']} missing ghsl_column"
+        assert "years" in ind, f"{ind['id']} missing years"
+        assert "id" in ind
+        assert "name" in ind
+        assert "category" in ind
+        assert "unit_label" in ind
+        assert "decimals" in ind
+        assert "unit_prefix" in ind
+
+
+def test_urban_indicators_no_wb_code():
+    for ind in DECKS["urban_areas"]["indicators"]:
+        assert "wb_code" not in ind
