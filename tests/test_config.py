@@ -19,12 +19,16 @@ def test_all_decks_have_required_fields():
         assert "deck_id" in deck, f"deck {key} missing deck_id"
         assert "output" in deck, f"deck {key} missing output"
         assert "data_dir" in deck, f"deck {key} missing data_dir"
-        assert "era_ranges" in deck, f"deck {key} missing era_ranges"
-        assert "indicators" in deck, f"deck {key} missing indicators"
+        # descriptive_stats is self-describing via CSVs — no indicators or era_ranges
+        if key != "descriptive_stats":
+            assert "era_ranges" in deck, f"deck {key} missing era_ranges"
+            assert "indicators" in deck, f"deck {key} missing indicators"
 
 
 def test_all_indicators_have_required_fields():
     for key, deck in DECKS.items():
+        if "indicators" not in deck:
+            continue
         for ind in deck["indicators"]:
             assert "id" in ind, f"deck {key}: indicator missing id"
             assert "name" in ind, f"deck {key}: {ind.get('id')} missing name"
@@ -51,6 +55,8 @@ def test_entity_count():
 
 def test_era_ranges_format():
     for key, deck in DECKS.items():
+        if "era_ranges" not in deck:
+            continue
         for era, rng in deck["era_ranges"].items():
             assert len(rng) == 3, f"deck {key} era {era}: expected 3-tuple"
             assert rng[0] <= rng[2] <= rng[1]
@@ -160,3 +166,15 @@ def test_urban_indicators_have_ghsl_fields():
 def test_urban_indicators_no_wb_code():
     for ind in DECKS["urban_areas"]["indicators"]:
         assert "wb_code" not in ind
+
+
+def test_descriptive_stats_deck_exists():
+    from knowledge_base.config import DECKS
+    cfg = DECKS["descriptive_stats"]
+    assert cfg["name"] == "Knowledge Base::Descriptive Statistics"
+    assert cfg["data_dir"] == "data/descriptive_stats"
+    assert cfg["output"] == "knowledge_base_descriptive_stats.apkg"
+    assert isinstance(cfg["deck_id"], int)
+    assert "source_decks" in cfg
+    assert "urban_areas" in cfg["source_decks"]
+    assert "development" in cfg["source_decks"]
