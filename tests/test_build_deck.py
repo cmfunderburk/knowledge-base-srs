@@ -4,7 +4,6 @@ from pathlib import Path
 from knowledge_base.build_deck import (
     generate_question,
     generate_notes,
-    generate_notes_city,
     generate_notes_land_area,
     compute_reference_averages,
     build_tags,
@@ -81,15 +80,6 @@ def test_compute_reference_averages():
     assert region_avgs["South Asia"] == pytest.approx(7200)
 
 
-def test_generate_notes_city():
-    notes = generate_notes_city(
-        source="UN World Urbanization Prospects 2024",
-        country_population=1_400_000_000,
-    )
-    assert "UN World Urbanization Prospects" in notes
-    assert "Country population: 1,400,000,000" in notes
-
-
 def test_generate_notes_land_area():
     notes = generate_notes_land_area(
         source="World Bank WDI",
@@ -109,3 +99,31 @@ def test_format_answer_default_scale_factor():
     indicator = {"decimals": 0}
     result = format_answer(8379, indicator)
     assert result == "8379"
+
+
+def test_compute_reference_averages_with_custom_entity():
+    """Test reference averages using aggregate entity names."""
+    df = pl.DataFrame({
+        "entity": ["All Cities", "High income", "CityA", "CityB"],
+        "entity_type": ["aggregate", "aggregate", "city", "city"],
+        "region": ["", "", "High income", "High income"],
+        "era": ["2020", "2020", "2020", "2020"],
+        "year": [2020, 2020, 2020, 2020],
+        "value": [15.0, 20.0, 10.0, 20.0],
+        "source": ["test", "test", "test", "test"],
+    })
+    world_avg, region_avgs = compute_reference_averages(
+        df, "2020",
+        reference_entity="All Cities",
+        reference_entity_type="aggregate",
+    )
+    assert world_avg == pytest.approx(15.0)
+    assert region_avgs["High income"] == pytest.approx(20.0)
+
+
+def test_compute_reference_averages_backward_compatible():
+    """Existing behavior unchanged when no custom args passed."""
+    df = pl.read_csv(FIXTURES / "sample_gdp.csv")
+    world_avg, region_avgs = compute_reference_averages(df, "current")
+    assert world_avg == pytest.approx(17500)
+    assert region_avgs["South Asia"] == pytest.approx(7200)

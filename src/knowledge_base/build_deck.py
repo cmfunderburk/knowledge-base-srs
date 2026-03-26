@@ -280,24 +280,27 @@ INTERVAL_MODEL = genanki.Model(
 
 
 def compute_reference_averages(
-    df: pl.DataFrame, era: str
+    df: pl.DataFrame,
+    era: str,
+    reference_entity: str = "World",
+    reference_entity_type: str = "region",
 ) -> tuple[float | None, dict[str, float]]:
-    """Extract World row value as world_avg and region rows as a dict.
+    """Extract reference entity value as world_avg and same-type rows as a dict.
 
-    Returns (world_avg, region_avgs) where region_avgs maps region name
+    Returns (world_avg, region_avgs) where region_avgs maps entity name
     to its aggregate value for the given era.
     """
     era_df = df.filter(pl.col("era") == era)
 
     # World average
-    world_rows = era_df.filter(pl.col("entity") == "World")
+    world_rows = era_df.filter(pl.col("entity") == reference_entity)
     world_avg: float | None = None
     if len(world_rows) > 0:
         world_avg = world_rows["value"][0]
 
     # Regional averages
     region_rows = era_df.filter(
-        (pl.col("entity_type") == "region") & (pl.col("entity") != "World")
+        (pl.col("entity_type") == reference_entity_type) & (pl.col("entity") != reference_entity)
     )
     region_avgs: dict[str, float] = {}
     for row in region_rows.iter_rows(named=True):
@@ -375,15 +378,6 @@ def generate_notes(
     return " | ".join(parts)
 
 
-def generate_notes_city(
-    source: str,
-    country_population: int | float,
-) -> str:
-    """Produce the Notes field for city population cards."""
-    formatted_pop = f"{country_population:,.0f}"
-    return f"Source: {source} | Country population: {formatted_pop}"
-
-
 def generate_notes_land_area(
     source: str,
     reference_total: int | float,
@@ -410,9 +404,9 @@ def build_tags(
     ]
 
 
-def _find_entity_config(entity_name: str) -> dict | None:
-    """Look up entity config by name from ENTITIES."""
-    for e in ENTITIES:
+def _find_entity_config(entity_name: str, entities: list[dict] | None = None) -> dict | None:
+    """Look up entity config by name from the given entity list."""
+    for e in (entities or ENTITIES):
         if e["name"] == entity_name:
             return e
     return None
@@ -432,6 +426,9 @@ def _run(
         raise KeyError(f"Unknown deck key: {deck_key!r}. Available: {list(DECKS)}")
 
     deck_cfg = DECKS[deck_key]
+    entities = deck_cfg.get("entities", ENTITIES)
+    ref_entity = deck_cfg.get("reference_entity", "World")
+    ref_entity_type = deck_cfg.get("reference_entity_type", "region")
     indicator_by_id = {ind["id"]: ind for ind in deck_cfg["indicators"]}
     resolved_data_dir = data_dir or Path(deck_cfg["data_dir"])
     resolved_output_path = output_path or Path(deck_cfg["output"])
@@ -448,26 +445,26 @@ def _run(
 
         df = pl.read_csv(csv_path)
         unit_prefix = indicator.get("unit_prefix", "")
-        is_city = indicator_id == "city_population"
         is_land_area = indicator_id == "land_area"
 
-        # Compute reference averages per era (for non-city, non-land-area)
+        # Compute reference averages per era
         eras = df["era"].unique().to_list()
         ref_by_era: dict[str, tuple[float | None, dict[str, float]]] = {}
         for era in eras:
-            ref_by_era[era] = compute_reference_averages(df, era)
-
-        # Filter to non-region rows for card generation
-        if is_city:
-            card_rows = df
-        else:
-            card_rows = df.filter(
-                pl.col("entity_type") != "region"
+            ref_by_era[era] = compute_reference_averages(
+                df, era,
+                reference_entity=ref_entity,
+                reference_entity_type=ref_entity_type,
             )
+
+        # Filter to non-region/non-aggregate rows for card generation
+        card_rows = df.filter(
+            ~pl.col("entity_type").is_in(["region", "aggregate"])
+        )
 
         for row in card_rows.iter_rows(named=True):
             entity_name = row["entity"]
-            entity_cfg = _find_entity_config(entity_name)
+            entity_cfg = _find_entity_config(entity_name, entities)
             if entity_cfg is None:
                 continue
 
@@ -479,33 +476,16 @@ def _run(
             entity_type = entity_cfg["entity_type"]
 
             # Generate question
-            if is_city:
-                city_name = row.get("city", entity_name)
-                question = generate_question(
-                    entity=city_name,
-                    indicator_name=indicator["name"],
-                    year=year,
-                    unit_label=indicator["unit_label"],
-                    era=era,
-                )
-            else:
-                question = generate_question(
-                    entity=entity_name,
-                    indicator_name=indicator["name"],
-                    year=year,
-                    unit_label=indicator["unit_label"],
-                    era=era,
-                )
+            question = generate_question(
+                entity=entity_name,
+                indicator_name=indicator["name"],
+                year=year,
+                unit_label=indicator["unit_label"],
+                era=era,
+            )
 
             # Generate notes
-            if is_city:
-                country_pop = row.get("country_population", 0)
-                scale_factor = indicator.get("scale_factor", 1)
-                notes = generate_notes_city(
-                    source=source,
-                    country_population=country_pop / scale_factor,
-                )
-            elif is_land_area:
+            if is_land_area:
                 world_avg, region_avgs = ref_by_era.get(
                     era, (None, {})
                 )
@@ -550,7 +530,7 @@ def _run(
                     question,
                     format_answer(value, indicator),
                     notes,
-                    "1",  # Desired accuracy multiplier
+                    "2",  # Desired accuracy multiplier
                 ],
                 tags=tags,
             )
