@@ -154,10 +154,11 @@ def test_generate_cloze_content_wb():
     assert "GDP per capita (PPP)" in content
     assert "2024" in content
     assert content.count("{{c1::") == 5
-    assert "{{c2::" not in content
-    assert "Burundi" in content
-    assert "Luxembourg" in content
-    assert "$878" in content or "$878" in content
+    assert "Mean: {{c1::$18,463}}" in content
+    assert "Median: {{c1::$13,178}}" in content
+    assert "SD: {{c1::$22,147}}" in content
+    assert "Min: {{c1::$878}} (Burundi)" in content
+    assert "Max: {{c1::$143,314}} (Luxembourg)" in content
 
 
 def test_generate_cloze_content_urban():

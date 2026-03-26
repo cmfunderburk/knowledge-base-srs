@@ -474,12 +474,12 @@ def generate_cloze_content(row: dict) -> str:
         population = f"{n} countries"
 
     return (
-        f"Across all {population}, {name} as of {year} "
-        f"ranges from {{{{c1::{fmt_min}}}}} ({row['min_entity']}) "
-        f"to {{{{c1::{fmt_max}}}}} ({row['max_entity']}), "
-        f"with a mean of {{{{c1::{fmt_mean}}}}}, "
-        f"median of {{{{c1::{fmt_median}}}}}, "
-        f"and standard deviation of {{{{c1::{fmt_std}}}}}."
+        f"Across all {population}, {name} as of {year}:<br>"
+        f"Mean: {{{{c1::{fmt_mean}}}}}<br>"
+        f"Median: {{{{c1::{fmt_median}}}}}<br>"
+        f"SD: {{{{c1::{fmt_std}}}}}<br>"
+        f"Min: {{{{c1::{fmt_min}}}}} ({row['min_entity']})<br>"
+        f"Max: {{{{c1::{fmt_max}}}}} ({row['max_entity']})"
     )
 
 
