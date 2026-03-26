@@ -162,3 +162,79 @@ def fetch_wb_stats(output_dir: Path) -> None:
             out_path = output_dir / f"{indicator_id}.csv"
             df.write_csv(out_path)
             print(f"    wrote {out_path}")
+
+
+# ---------------------------------------------------------------------------
+# Urban helpers
+# ---------------------------------------------------------------------------
+
+
+def compute_urban_indicator_stats(csv_path: Path) -> dict | None:
+    """Compute stats from an existing urban indicator CSV.
+
+    Filters to city rows (excludes aggregates) and the most recent era.
+    Returns stats dict with year, or None if no city data found.
+    """
+    df = pl.read_csv(csv_path)
+
+    # Filter to city rows only
+    cities = df.filter(pl.col("entity_type") == "city")
+    if len(cities) == 0:
+        return None
+
+    # Pick the most recent era (era column may be int or str)
+    era_col = cities["era"].cast(pl.Utf8)
+    latest_era = era_col.sort(descending=True).first()
+    cities = cities.filter(pl.col("era").cast(pl.Utf8) == latest_era)
+
+    stats = compute_desc_stats(cities.select(["entity", "value"]))
+    stats["year"] = int(cities["year"][0])
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Urban fetch orchestrator
+# ---------------------------------------------------------------------------
+
+
+def fetch_urban_stats(output_dir: Path) -> None:
+    """Compute stats for all urban indicators from existing CSVs."""
+    urban_cfg = DECKS["urban_areas"]
+    urban_data_dir = Path(urban_cfg["data_dir"])
+
+    if not urban_data_dir.exists():
+        print(f"  Urban data dir {urban_data_dir} not found — skipping.")
+        print("  Run 'fetch-urban-data' first.")
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for indicator in urban_cfg["indicators"]:
+        indicator_id = indicator["id"]
+        csv_path = urban_data_dir / f"{indicator_id}.csv"
+        if not csv_path.exists():
+            print(f"  [urban_areas] {indicator_id} — CSV not found, skipping")
+            continue
+
+        print(f"  [urban_areas] {indicator_id}...")
+
+        stats = compute_urban_indicator_stats(csv_path)
+        if stats is None:
+            print(f"    No city data for {indicator_id}")
+            continue
+
+        row = {
+            **stats,
+            "indicator_id": f"urban_{indicator_id}",
+            "indicator_name": indicator["name"],
+            "category": indicator["category"],
+            "source_deck": "urban_areas",
+            "unit_label": indicator["unit_label"],
+            "unit_prefix": indicator.get("unit_prefix", ""),
+            "decimals": indicator.get("decimals", 1),
+            "scale_factor": indicator.get("scale_factor", 1),
+        }
+        df = build_stats_dataframe(row)
+        out_path = output_dir / f"urban_{indicator_id}.csv"
+        df.write_csv(out_path)
+        print(f"    wrote {out_path}")
