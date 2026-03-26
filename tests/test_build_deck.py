@@ -8,6 +8,8 @@ from knowledge_base.build_deck import (
     compute_reference_averages,
     build_tags,
     format_answer,
+    generate_cloze_content,
+    generate_desc_stats_note_field,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -127,3 +129,70 @@ def test_compute_reference_averages_backward_compatible():
     world_avg, region_avgs = compute_reference_averages(df, "current")
     assert world_avg == pytest.approx(17500)
     assert region_avgs["South Asia"] == pytest.approx(7200)
+
+
+def test_generate_cloze_content_wb():
+    row = {
+        "indicator_name": "GDP per capita (PPP)",
+        "source_deck": "development",
+        "unit_label": "in 2021 international dollars",
+        "unit_prefix": "$",
+        "decimals": 0,
+        "scale_factor": 1,
+        "year": 2024,
+        "n": 190,
+        "mean": 18463.0,
+        "median": 13178.0,
+        "std": 22147.0,
+        "min_value": 878.0,
+        "min_entity": "Burundi",
+        "max_value": 143314.0,
+        "max_entity": "Luxembourg",
+    }
+    content = generate_cloze_content(row)
+    assert "190 countries" in content
+    assert "GDP per capita (PPP)" in content
+    assert "2024" in content
+    assert "{{c1::" in content
+    assert "{{c2::" in content
+    assert "{{c3::" in content
+    assert "{{c4::" in content
+    assert "{{c5::" in content
+    assert "Burundi" in content
+    assert "Luxembourg" in content
+    assert "$878" in content or "$878" in content
+
+
+def test_generate_cloze_content_urban():
+    row = {
+        "indicator_name": "CO2 emissions per capita",
+        "source_deck": "urban_areas",
+        "unit_label": "tonnes per person",
+        "unit_prefix": "",
+        "decimals": 2,
+        "scale_factor": 1,
+        "year": 2020,
+        "n": 50,
+        "mean": 6.78,
+        "median": 5.12,
+        "std": 4.89,
+        "min_value": 1.23,
+        "min_entity": "Kinshasa",
+        "max_value": 18.45,
+        "max_entity": "Houston",
+    }
+    content = generate_cloze_content(row)
+    assert "top 50 cities" in content
+    assert "CO2 emissions per capita" in content
+    assert "Kinshasa" in content
+    assert "Houston" in content
+
+
+def test_generate_desc_stats_note_field_wb():
+    note = generate_desc_stats_note_field("development")
+    assert "World Bank WDI" in note
+
+
+def test_generate_desc_stats_note_field_urban():
+    note = generate_desc_stats_note_field("urban_areas")
+    assert "GHS-UCDB" in note

@@ -275,6 +275,47 @@ INTERVAL_MODEL = genanki.Model(
 )
 
 # ---------------------------------------------------------------------------
+# Enhanced Cloze model (for descriptive statistics deck)
+# ---------------------------------------------------------------------------
+
+ENHANCED_CLOZE_ADDON_DIR = Path.home() / ".local/share/Anki2/addons21/1990296174/note_type"
+
+def _load_enhanced_cloze_model() -> genanki.Model:
+    """Load the Enhanced Cloze 2.1 v2 model from the installed add-on."""
+    front_path = ENHANCED_CLOZE_ADDON_DIR / "Enhanced_Cloze_Front_Side.html"
+    back_path = ENHANCED_CLOZE_ADDON_DIR / "Enhanced_Cloze_Back_Side.html"
+    css_path = ENHANCED_CLOZE_ADDON_DIR / "Enhanced_Cloze_CSS.css"
+
+    for p in (front_path, back_path, css_path):
+        if not p.exists():
+            raise FileNotFoundError(
+                f"Enhanced Cloze template not found: {p}\n"
+                "Install the Enhanced Cloze add-on (1990296174) in Anki first."
+            )
+
+    return genanki.Model(
+        1774552435321,
+        "Enhanced Cloze 2.1 v2",
+        model_type=1,  # cloze
+        fields=[
+            {"name": "Content"},
+            {"name": "Note"},
+            {"name": "Mnemonics"},
+            {"name": "Extra"},
+            {"name": "Cloze99"},
+        ],
+        templates=[
+            {
+                "name": "Enhanced Cloze",
+                "qfmt": front_path.read_text(),
+                "afmt": back_path.read_text(),
+            }
+        ],
+        css=css_path.read_text(),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public functions
 # ---------------------------------------------------------------------------
 
@@ -402,6 +443,51 @@ def build_tags(
         f"entity_type::{entity_type}",
         f"era::{era}",
     ]
+
+
+def _format_stat(value: float, unit_prefix: str, decimals: int, scale_factor: int) -> str:
+    """Format a stat value with prefix, scaling, and commas."""
+    scaled = value / scale_factor
+    if decimals == 0:
+        return f"{unit_prefix}{scaled:,.0f}"
+    return f"{unit_prefix}{scaled:,.{decimals}f}"
+
+
+def generate_cloze_content(row: dict) -> str:
+    """Generate Enhanced Cloze content for a descriptive stats card."""
+    name = row["indicator_name"]
+    year = row["year"]
+    n = row["n"]
+    prefix = row["unit_prefix"]
+    decimals = row["decimals"]
+    sf = row["scale_factor"]
+
+    fmt_min = _format_stat(row["min_value"], prefix, decimals, sf)
+    fmt_max = _format_stat(row["max_value"], prefix, decimals, sf)
+    fmt_mean = _format_stat(row["mean"], prefix, decimals, sf)
+    fmt_median = _format_stat(row["median"], prefix, decimals, sf)
+    fmt_std = _format_stat(row["std"], prefix, decimals, sf)
+
+    if row["source_deck"] == "urban_areas":
+        population = f"top {n} cities"
+    else:
+        population = f"{n} countries"
+
+    return (
+        f"Across all {population}, {name} as of {year} "
+        f"ranges from {{{{c1::{fmt_min}}}}} ({row['min_entity']}) "
+        f"to {{{{c2::{fmt_max}}}}} ({row['max_entity']}), "
+        f"with a mean of {{{{c3::{fmt_mean}}}}}, "
+        f"median of {{{{c4::{fmt_median}}}}}, "
+        f"and standard deviation of {{{{c5::{fmt_std}}}}}."
+    )
+
+
+def generate_desc_stats_note_field(source_deck: str) -> str:
+    """Generate the Note field for a descriptive stats card."""
+    if source_deck == "urban_areas":
+        return "Source: GHS-UCDB R2024A"
+    return "Source: World Bank WDI"
 
 
 def _find_entity_config(entity_name: str, entities: list[dict] | None = None) -> dict | None:
