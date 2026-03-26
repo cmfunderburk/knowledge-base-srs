@@ -10,11 +10,12 @@ Multi-deck Anki flashcard generator for calibration training using the [Anki wit
 uv sync                          # install deps
 uv run fetch-data <deck_key>     # fetch from World Bank API → data/<deck>/*.csv
 uv run fetch-urban-data           # extract GHS-UCDB → data/urban_areas/*.csv
+uv run fetch-desc-stats              # compute stats from WB API + urban CSVs → data/descriptive_stats/*.csv
 uv run build-deck <deck_key>     # generate .apkg from CSVs
 uv run pytest                    # 44 tests
 ```
 
-Available deck keys: `development`, `tech_adoption`, `conflict_security`, `finance`, `urban_areas`
+Available deck keys: `development`, `tech_adoption`, `conflict_security`, `finance`, `urban_areas`, `descriptive_stats`
 
 ## Architecture
 
