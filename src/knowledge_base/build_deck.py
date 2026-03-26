@@ -498,6 +498,52 @@ def _find_entity_config(entity_name: str, entities: list[dict] | None = None) ->
     return None
 
 
+def _run_descriptive_stats(
+    data_dir: Path | None = None,
+    output_path: Path | None = None,
+) -> None:
+    """Build the descriptive statistics deck from summary CSVs."""
+    deck_cfg = DECKS["descriptive_stats"]
+    resolved_data_dir = data_dir or Path(deck_cfg["data_dir"])
+    resolved_output_path = output_path or Path(deck_cfg["output"])
+
+    model = _load_enhanced_cloze_model()
+    deck = genanki.Deck(deck_cfg["deck_id"], deck_cfg["name"])
+
+    csv_files = sorted(resolved_data_dir.glob("*.csv"))
+
+    for csv_path in csv_files:
+        df = pl.read_csv(csv_path)
+        if len(df) == 0:
+            continue
+
+        row = df.row(0, named=True)
+
+        content = generate_cloze_content(row)
+        note_field = generate_desc_stats_note_field(row["source_deck"])
+
+        tags = [
+            f"source_deck::{row['source_deck']}",
+            f"category::{row['category']}",
+        ]
+
+        note = genanki.Note(
+            model=model,
+            fields=[
+                content,      # Content
+                note_field,   # Note
+                "",           # Mnemonics
+                "",           # Extra
+                "",           # Cloze99
+            ],
+            tags=tags,
+        )
+        deck.add_note(note)
+
+    package = genanki.Package(deck)
+    package.write_to_file(str(resolved_output_path))
+
+
 def _run(
     deck_key: str,
     data_dir: Path | None = None,
@@ -510,6 +556,10 @@ def _run(
     """
     if deck_key not in DECKS:
         raise KeyError(f"Unknown deck key: {deck_key!r}. Available: {list(DECKS)}")
+
+    if deck_key == "descriptive_stats":
+        _run_descriptive_stats(data_dir=data_dir, output_path=output_path)
+        return
 
     deck_cfg = DECKS[deck_key]
     entities = deck_cfg.get("entities", ENTITIES)

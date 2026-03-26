@@ -45,3 +45,34 @@ def test_build_urban_deck_from_fixtures(tmp_path):
 
     assert output_path.exists()
     assert output_path.stat().st_size > 0
+
+
+def test_build_descriptive_stats_deck(tmp_path):
+    """End-to-end: summary CSV → .apkg for descriptive stats deck."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    header = (
+        "indicator_id,indicator_name,category,source_deck,unit_label,unit_prefix,"
+        "decimals,scale_factor,year,n,mean,median,std,"
+        "min_value,min_entity,max_value,max_entity\n"
+    )
+    (data_dir / "gdp_pc_ppp.csv").write_text(
+        header
+        + "gdp_pc_ppp,GDP per capita (PPP),development,development,"
+        "in 2021 international dollars,$,0,1,2024,190,"
+        "18463.0,13178.0,22147.0,878.0,Burundi,143314.0,Luxembourg\n"
+    )
+    (data_dir / "urban_population.csv").write_text(
+        header
+        + "urban_population,Population,demographics,urban_areas,"
+        "millions,,1,1000000,2025,50,"
+        "12895864.0,10500000.0,8000000.0,1200000.0,Luanda,38000000.0,Tokyo\n"
+    )
+
+    output_path = tmp_path / "test_desc_stats.apkg"
+
+    _run("descriptive_stats", data_dir=data_dir, output_path=output_path)
+
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
