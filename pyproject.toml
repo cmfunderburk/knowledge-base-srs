@@ -12,6 +12,7 @@ dependencies = [
 [project.scripts]
 fetch-data = "knowledge_base.fetch_data:main"
 fetch-urban-data = "knowledge_base.fetch_urban_data:main"
+fetch-desc-stats = "knowledge_base.fetch_desc_stats:main"
 build-deck = "knowledge_base.build_deck:main"
 
 [tool.pytest.ini_options]

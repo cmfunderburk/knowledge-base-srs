@@ -238,3 +238,32 @@ def fetch_urban_stats(output_dir: Path) -> None:
         out_path = output_dir / f"urban_{indicator_id}.csv"
         df.write_csv(out_path)
         print(f"    wrote {out_path}")
+
+
+# ---------------------------------------------------------------------------
+# Top-level orchestrator
+# ---------------------------------------------------------------------------
+
+
+def _run(output_dir: Path | None = None) -> None:
+    """Fetch descriptive stats for all indicators and write CSVs."""
+    desc_cfg = DECKS["descriptive_stats"]
+    resolved_dir = output_dir or Path(desc_cfg["data_dir"])
+
+    print("Fetching World Bank indicator stats...")
+    fetch_wb_stats(resolved_dir)
+
+    print("Computing urban indicator stats...")
+    fetch_urban_stats(resolved_dir)
+
+    print("Done.")
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """CLI entry point for fetch-desc-stats."""
+    _run()
