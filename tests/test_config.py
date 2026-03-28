@@ -168,6 +168,33 @@ def test_urban_indicators_no_wb_code():
         assert "wb_code" not in ind
 
 
+def test_education_deck_exists():
+    assert "education" in DECKS
+    deck = DECKS["education"]
+    assert deck["name"] == "Knowledge Base::Education"
+    assert deck["deck_id"] == 2026032806
+    assert deck["data_dir"] == "data/education"
+    assert len(deck["indicators"]) == 4
+    eras = deck["era_ranges"]
+    assert set(eras.keys()) == {"1990", "current"}
+    assert eras["1990"] == (1988, 1992, 1990)
+    assert eras["current"] == (2020, 2026, 2026)
+    # All indicators are percentages — no scale_factor, no unit_prefix
+    for ind in deck["indicators"]:
+        assert ind.get("scale_factor", 1) == 1
+        assert ind["unit_prefix"] == ""
+        assert ind["category"] == "education"
+        assert ind["has_regional_aggregates"] is True
+    # Check specific indicator IDs
+    ids = {i["id"] for i in deck["indicators"]}
+    assert ids == {
+        "adult_literacy",
+        "secondary_enrollment",
+        "tertiary_enrollment",
+        "education_expenditure",
+    }
+
+
 def test_descriptive_stats_deck_exists():
     from knowledge_base.config import DECKS
     cfg = DECKS["descriptive_stats"]

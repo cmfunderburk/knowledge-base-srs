@@ -388,7 +388,8 @@ class TestImportAll:
         assert "finance" in results
         assert "urban_areas" in results
         assert "descriptive_stats" in results
-        assert all(n > 0 for n in results.values())
+        for deck_key in ["development", "tech_adoption", "conflict_security", "finance", "urban_areas", "descriptive_stats"]:
+            assert results[deck_key] > 0, f"{deck_key} imported 0 cards"
 
     def test_import_all_total_cards(self):
         conn = _make_conn()
