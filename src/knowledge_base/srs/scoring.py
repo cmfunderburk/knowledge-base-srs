@@ -3,55 +3,54 @@
 import math
 from dataclasses import dataclass
 
-NORMAL_95_WIDTH = 3.92  # 2 * 1.96, width of 95% CI for standard normal
-COVERAGE_PENALTY = 0.2  # multiplier when true answer is outside stated interval
+CI_WIDTH_FACTOR = 3.92  # 2 * 1.96, width of 95% CI for standard normal
+LOGISTIC_CENTER = 2.0   # midpoint of logistic transform
+LOGISTIC_SCALE = 1.0    # temperature of logistic transform
+
+_EPSILON = 1e-9  # guard against division by zero
 
 
 @dataclass
 class IntervalResult:
-    accuracy_score: float
-    precision_score: float
-    covered: bool
-    score: float
+    z: float        # z-score: |A - center| / sigma_implied
+    cov: float      # coefficient of variation: sigma_implied / |A|
+    covered: bool   # whether A is in [L, U] (informational only)
+    score: float    # logistic-transformed log-likelihood
 
 
 def score_interval(
     lower: float,
     upper: float,
     true_answer: float,
-    indicator_std: float,
 ) -> IntervalResult:
-    """Score a confidence interval response.
+    """Score a confidence interval using answer-normalized log-likelihood.
 
-    Uses a Cobb-Douglas (geometric mean) combination of accuracy and precision.
-    A coverage penalty of 0.2x is applied when the true answer falls outside
-    the stated interval.
+    Treats [lower, upper] as a 95% CI implying N(center, sigma_implied).
+    Computes S = -z^2/2 - ln(CoV) and transforms via logistic to [0, 1].
 
-    Args:
-        lower: Lower bound of the stated interval.
-        upper: Upper bound of the stated interval.
-        true_answer: The correct value.
-        indicator_std: Standard deviation of the indicator distribution.
-
-    Returns:
-        IntervalResult with component scores and final score.
+    Coverage penalty emerges naturally from the z-score: if the true answer
+    is outside the interval, z > 1.96 and the score is crushed.
     """
     center = (lower + upper) / 2
-    interval_width = upper - lower
+    width = upper - lower
+    sigma_implied = width / CI_WIDTH_FACTOR
+    abs_answer = max(abs(true_answer), _EPSILON)
 
-    accuracy_score = math.exp(-abs(true_answer - center) / indicator_std)
-    precision_score = math.exp(-interval_width / (NORMAL_95_WIDTH * indicator_std))
+    # Edge case: near-zero width
+    if sigma_implied < _EPSILON:
+        if abs(true_answer - center) < _EPSILON:
+            return IntervalResult(z=0.0, cov=0.0, covered=True, score=1.0)
+        return IntervalResult(z=float("inf"), cov=0.0, covered=False, score=0.0)
 
-    core = accuracy_score ** 0.5 * precision_score ** 0.5
+    z = abs(true_answer - center) / sigma_implied
+    cov = sigma_implied / abs_answer
+    raw_s = -z**2 / 2 - math.log(cov)
+    exponent = -(raw_s - LOGISTIC_CENTER) / LOGISTIC_SCALE
+    # Clamp exponent to avoid overflow; beyond ~709 exp() overflows in Python
+    score = 1.0 / (1.0 + math.exp(min(exponent, 709.0)))
     covered = lower <= true_answer <= upper
-    score = core if covered else core * COVERAGE_PENALTY
 
-    return IntervalResult(
-        accuracy_score=accuracy_score,
-        precision_score=precision_score,
-        covered=covered,
-        score=score,
-    )
+    return IntervalResult(z=z, cov=cov, covered=covered, score=score)
 
 
 def score_point(user_point: float, true_answer: float, indicator_std: float) -> float:
@@ -59,11 +58,6 @@ def score_point(user_point: float, true_answer: float, indicator_std: float) -> 
 
     Returns a discrete score based on how close the guess is relative to the
     indicator standard deviation.
-
-    Args:
-        user_point: The user's point estimate.
-        true_answer: The correct value.
-        indicator_std: Standard deviation of the indicator distribution.
 
     Returns:
         1.0 if error < 0.05 std, 0.5 if error < 0.25 std, else 0.0.
@@ -86,15 +80,6 @@ def apply_difficulty_modifier(
 
     Questions where the true answer is far from the typical value are harder,
     so correct responses earn a bonus. The result is capped at 1.0.
-
-    Args:
-        score: Raw score to modify.
-        true_answer: The correct value.
-        indicator_mean: Mean of the indicator distribution.
-        indicator_std: Standard deviation of the indicator distribution.
-
-    Returns:
-        Modified score, capped at 1.0.
     """
     difficulty_z = abs(true_answer - indicator_mean) / indicator_std
     modifier = 1 + 0.1 * difficulty_z

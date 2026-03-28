@@ -1,11 +1,13 @@
 """Tests for srs/scoring.py — pure scoring math."""
 
 import math
+import inspect
 import pytest
 from knowledge_base.srs.scoring import (
     IntervalResult,
-    NORMAL_95_WIDTH,
-    COVERAGE_PENALTY,
+    CI_WIDTH_FACTOR,
+    LOGISTIC_CENTER,
+    LOGISTIC_SCALE,
     score_interval,
     score_point,
     apply_difficulty_modifier,
@@ -17,77 +19,96 @@ from knowledge_base.srs.scoring import (
 # ---------------------------------------------------------------------------
 
 class TestScoreInterval:
-    def test_perfect_center_tight_covered(self):
-        """Interval centered exactly on true answer, tight width → high score."""
-        std = 10.0
-        true = 50.0
-        lower, upper = 48.0, 52.0
-        result = score_interval(lower, upper, true, std)
+    def test_signature_no_indicator_std(self):
+        """score_interval takes exactly 3 positional args (lower, upper, true_answer)."""
+        sig = inspect.signature(score_interval)
+        params = list(sig.parameters.values())
+        assert len(params) == 3
+        assert params[0].name == "lower"
+        assert params[1].name == "upper"
+        assert params[2].name == "true_answer"
 
-        assert result.covered is True
-        assert result.accuracy_score == pytest.approx(1.0)  # center == true_answer
-        # precision_score = exp(-4 / (3.92 * 10)) = exp(-0.1020...)
-        expected_precision = math.exp(-4.0 / (NORMAL_95_WIDTH * std))
-        assert result.precision_score == pytest.approx(expected_precision)
-        expected_core = result.accuracy_score ** 0.5 * result.precision_score ** 0.5
-        assert result.score == pytest.approx(expected_core)
+    def test_result_fields(self):
+        """IntervalResult has z, cov, covered, score."""
+        result = score_interval(10.0, 20.0, 13.62)
+        assert hasattr(result, "z")
+        assert hasattr(result, "cov")
+        assert hasattr(result, "covered")
+        assert hasattr(result, "score")
 
-    def test_off_center_covered(self):
-        """Interval covers true answer but center is off → accuracy_score < 1."""
-        std = 10.0
-        true = 50.0
-        lower, upper = 40.0, 55.0  # center = 47.5, off by 2.5
-        result = score_interval(lower, upper, true, std)
+    def test_wide_interval_borderline_bad(self):
+        """[10, 20] on 13.62 → score 0.35-0.43."""
+        result = score_interval(10.0, 20.0, 13.62)
+        assert 0.35 <= result.score <= 0.43
 
-        assert result.covered is True
-        center = (lower + upper) / 2
-        expected_accuracy = math.exp(-abs(true - center) / std)
-        assert result.accuracy_score == pytest.approx(expected_accuracy)
-        assert result.score > 0.0
+    def test_medium_interval_ok(self):
+        """[11, 16] on 13.62 → score 0.55-0.63."""
+        result = score_interval(11.0, 16.0, 13.62)
+        assert 0.55 <= result.score <= 0.63
 
-    def test_not_covered_penalty(self):
-        """True answer outside interval → 0.2x penalty applied."""
-        std = 10.0
-        true = 80.0
-        lower, upper = 40.0, 60.0  # true answer well outside
-        result = score_interval(lower, upper, true, std)
+    def test_tight_interval_borderline_good(self):
+        """[12, 15] on 13.62 → score 0.67-0.73."""
+        result = score_interval(12.0, 15.0, 13.62)
+        assert 0.67 <= result.score <= 0.73
 
+    def test_very_tight_centered_high_score(self):
+        """[13, 14.5] on 13.62 → score > 0.78."""
+        result = score_interval(13.0, 14.5, 13.62)
+        assert result.score > 0.78
+
+    def test_very_wide_bad(self):
+        """[0, 30] on 13.62 → score < 0.25."""
+        result = score_interval(0.0, 30.0, 13.62)
+        assert result.score < 0.25
+
+    def test_not_covered_crushed(self):
+        """[20, 25] on 13.62 → covered=False, z > 1.96, score < 0.05."""
+        result = score_interval(20.0, 25.0, 13.62)
         assert result.covered is False
-        center = (lower + upper) / 2
-        expected_accuracy = math.exp(-abs(true - center) / std)
-        expected_precision = math.exp(-(upper - lower) / (NORMAL_95_WIDTH * std))
-        expected_core = expected_accuracy ** 0.5 * expected_precision ** 0.5
-        assert result.score == pytest.approx(expected_core * COVERAGE_PENALTY)
+        assert result.z > 1.96
+        assert result.score < 0.05
 
-    def test_very_wide_low_precision(self):
-        """Very wide interval → low precision score even if centered."""
-        std = 10.0
-        true = 50.0
-        lower, upper = 0.0, 100.0  # width = 100, much wider than std
-        result = score_interval(lower, upper, true, std)
+    def test_coverage_smooth_not_cliff(self):
+        """[10, 14] on 13.99 vs 14.01 → score diff < 0.15 (smooth, not cliff)."""
+        result_just_in = score_interval(10.0, 14.0, 13.99)
+        result_just_out = score_interval(10.0, 14.0, 14.01)
+        assert abs(result_just_in.score - result_just_out.score) < 0.15
 
-        assert result.covered is True
-        assert result.precision_score < 0.1  # wide interval → poor precision
-        # Score is penalized by low precision
-        tight_result = score_interval(48.0, 52.0, true, std)
-        assert result.score < tight_result.score
+    def test_perfect_center_z_zero(self):
+        """[48, 52] on 50 → z ≈ 0.0."""
+        result = score_interval(48.0, 52.0, 50.0)
+        assert result.z == pytest.approx(0.0)
 
-    def test_tight_off_center_not_covered(self):
-        """Tight but wrong interval — not covered and low accuracy."""
-        std = 10.0
-        true = 50.0
-        lower, upper = 20.0, 25.0  # tight, far from true answer
-        result = score_interval(lower, upper, true, std)
+    def test_zero_answer_no_crash(self):
+        """[-1, 1] on 0.0 → no crash, score in [0, 1]."""
+        result = score_interval(-1.0, 1.0, 0.0)
+        assert 0.0 <= result.score <= 1.0
 
-        assert result.covered is False
-        # accuracy is very low (center=22.5, true=50, diff=27.5)
-        center = (lower + upper) / 2
-        expected_accuracy = math.exp(-abs(true - center) / std)
-        assert result.accuracy_score == pytest.approx(expected_accuracy)
-        assert result.accuracy_score < 0.1
-        assert result.score == pytest.approx(
-            result.accuracy_score ** 0.5 * result.precision_score ** 0.5 * COVERAGE_PENALTY
-        )
+    def test_near_zero_width_centered(self):
+        """[49.9999999, 50.0000001] on 50.0 → score = 1.0."""
+        result = score_interval(49.9999999, 50.0000001, 50.0)
+        assert result.score == pytest.approx(1.0)
+
+    def test_near_zero_width_off_center(self):
+        """[99.9999999, 100.0000001] on 50.0 → score < 0.01."""
+        result = score_interval(99.9999999, 100.0000001, 50.0)
+        assert result.score < 0.01
+
+    def test_score_bounded_zero_one(self):
+        """Various intervals → all scores in [0, 1]."""
+        cases = [
+            (0.0, 100.0, 50.0),
+            (45.0, 55.0, 50.0),
+            (49.0, 51.0, 50.0),
+            (0.0, 10.0, 50.0),
+            (100.0, 200.0, 50.0),
+            (-50.0, 50.0, 0.0),
+        ]
+        for lower, upper, true in cases:
+            result = score_interval(lower, upper, true)
+            assert 0.0 <= result.score <= 1.0, (
+                f"score={result.score} out of [0,1] for [{lower},{upper}] on {true}"
+            )
 
 
 # ---------------------------------------------------------------------------
