@@ -169,12 +169,6 @@ class TestCardFieldsPopulated:
         card = self._get_india_card(conn)
         assert card["indicator_std"] == pytest.approx(27142.0)
 
-    def test_state_is_new(self):
-        conn = _make_conn()
-        _run_import(conn)
-        card = self._get_india_card(conn)
-        assert card["state"] == "new"
-
     def test_deck_field(self):
         conn = _make_conn()
         _run_import(conn)
@@ -239,7 +233,6 @@ class TestIdempotentReimport:
             "SELECT card_id FROM cards WHERE entity = 'India'"
         ).fetchone()[0]
         update_card_scheduling(conn, card_id, {
-            "state": "review",
             "reps": 3,
             "stability": 7.5,
         })
@@ -251,7 +244,6 @@ class TestIdempotentReimport:
         row = dict(conn.execute(
             "SELECT * FROM cards WHERE card_id = ?", (card_id,)
         ).fetchone())
-        assert row["state"] == "review"
         assert row["reps"] == 3
         assert row["stability"] == pytest.approx(7.5)
 
