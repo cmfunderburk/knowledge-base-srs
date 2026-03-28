@@ -24,9 +24,12 @@ New SRS module:
 ### Module Structure
 
 ```
+src/knowledge_base/
+    card_gen.py     — shared question/notes/answer/tag generation (extracted from build_deck.py)
+
 src/knowledge_base/srs/
     __init__.py
-    db.py           — SQLite schema, card/review CRUD
+    db.py           — SQLite schema, card/review CRUD, schema migrations
     scheduler.py    — DSR model, interval computation, desired retention modulation
     scoring.py      — Accuracy/precision/coverage scoring, point prediction, Brier
     importer.py     — CSV → SQLite card population, idempotent upsert
@@ -34,11 +37,24 @@ src/knowledge_base/srs/
     stats.py        — Brier score, calibration curve, per-indicator breakdowns
 ```
 
+`card_gen.py` is extracted from `build_deck.py` as a prerequisite refactor. The functions `generate_question()`, `generate_notes()`, `format_answer()`, and `build_tags()` are pure (entity + indicator + year → strings) and used by both `build_deck.py` and `importer.py`.
+
 ### CLI Entry Points
 
 - `uv run review [deck_key]` — launch review session (optional deck filter)
 - `uv run review --stats` — stats screen only
 - `uv run srs-import [deck_key]` — import/update cards from CSVs
+
+### CSV Discovery
+
+The importer follows the same conventions as `build_deck.py`. For a given deck key:
+
+1. Look up `DECKS[key]` in `config.py` to get `data_dir` and `indicators` list
+2. For each indicator, read `data/{data_dir}/{indicator_id}.csv`
+3. For descriptive stats, read `data/descriptive_stats/{indicator_id}.csv` (or `urban_{indicator_id}.csv` for urban deck) to get `mean` and `std`
+4. Match descriptive stats to cards by `indicator_id` and `year`
+
+If no descriptive stats CSV exists for an indicator (e.g., a newly added indicator before `fetch-desc-stats` has been run), the importer warns and sets `indicator_mean` and `indicator_std` to NULL. Scoring falls back to a default SD computed from the card values in the import batch.
 
 ### Dependencies
 
@@ -55,19 +71,21 @@ src/knowledge_base/srs/
 | `deck` | TEXT | Deck key (e.g., `development`) |
 | `indicator_id` | TEXT | From config (e.g., `gdp_pc_ppp`) |
 | `entity` | TEXT | Country/city name |
-| `era` | TEXT | `current`, `1960`, `1990`, etc. |
+| `era` | TEXT | From source CSV era column: `current`, `1960`, `1990` for WB decks; actual year strings like `2000`, `2015` for urban deck |
 | `question` | TEXT | Generated question text |
-| `answer` | REAL | Numeric value |
+| `answer` | REAL | Numeric value in display units (divided by `scale_factor`) |
 | `unit_prefix` | TEXT | `$`, `%`, etc. |
 | `unit_label` | TEXT | Display context |
 | `notes` | TEXT | World avg, regional avg, source |
 | `tags` | TEXT | JSON array |
-| `indicator_mean` | REAL | From descriptive stats CSV |
-| `indicator_std` | REAL | From descriptive stats CSV |
-| `scale_factor` | INTEGER | From config |
+| `indicator_mean` | REAL | From descriptive stats CSV, in display units |
+| `indicator_std` | REAL | From descriptive stats CSV, in display units |
+| `scale_factor` | INTEGER | From config (used during import to convert raw → display) |
 | `decimals` | INTEGER | From config |
 
 Unique constraint on `(indicator_id, entity, era)` for idempotent import.
+
+All numeric fields (`answer`, `indicator_mean`, `indicator_std`) are stored in display units — i.e., divided by `scale_factor`. This matches what the user types and sees, so the scoring algorithm operates directly on stored values without conversion. The importer applies `scale_factor` during import.
 
 ### Scheduling State (columns on card table)
 
@@ -97,6 +115,10 @@ Unique constraint on `(indicator_id, entity, era)` for idempotent import.
 | `desired_retention` | REAL | The modulated retention target used |
 | `interval_applied` | REAL | Days until next review |
 | `elapsed_days` | REAL | Days since previous review |
+
+### Schema Migration
+
+`db.py` maintains a `schema_version` table with a single integer. On startup, `migrate()` checks the current version and applies any pending migrations sequentially. Migrations are defined as a list of SQL strings in `db.py`, indexed by version number. This is minimal but sufficient for a single-user SQLite database — no ORM or migration framework needed. The initial schema is version 1.
 
 ## Scoring Algorithm
 
@@ -136,8 +158,8 @@ The user claims certainty by entering a single number. Thresholds are deliberate
 ```
 error = |true_answer - user_point| / indicator_std
 
-if error < 0.05:  score = 1.0    # Within 5% of a SD — you knew it
-if error < 0.25:  score = 0.5    # Close but not certain-level
+if error < 0.05:  score = 1.0    # Within 0.05 SDs — you knew it
+if error < 0.25:  score = 0.5    # Within 0.25 SDs — close but not certain-level
 else:             score = 0.0    # Claimed certainty, was wrong
 ```
 
@@ -199,6 +221,8 @@ retention = base_retention + 0.05 * (score - 0.5)   # range: [0.85, 0.925]
 - Score 0.5 → 90% target → baseline interval
 - Score 0.0 → 85% target → shorter interval
 
+The range is deliberately asymmetric around baseline: -5% downside vs. +2.5% upside. Poor calibration is penalized more aggressively than good calibration is rewarded — the system is conservative about extending intervals.
+
 ### Interval Computation
 
 ```
@@ -210,14 +234,17 @@ At 90% retention, interval equals stability. The retention shift scales it propo
 ### Card States
 
 - **New** → first review transitions to Learning
-- **Learning** → fixed short intervals (10min, 1day). Each successful review (score >= 0.4) increments `consecutive_successes`; a failure resets it to 0 and restarts the step sequence. When `consecutive_successes` reaches 2, the card promotes to Review and its initial stability is set to 1.0 day.
+- **Learning** → two steps. Step 1: "show again this session" (intra-session repetition — the card re-enters the queue after other due cards, regardless of elapsed minutes). Step 2: due next day. Each successful review (score >= 0.4) increments `consecutive_successes`; a failure resets it to 0 and restarts at step 1. When `consecutive_successes` reaches 2, the card promotes to Review with initial stability of 1.0 day. If the user quits mid-session with a learning card at step 1, it remains at step 1 and appears first in the next session.
 - **Review** → intervals computed by the DSR model
 
 ### Queue Priority
 
-1. Overdue review cards (sorted by most overdue first)
-2. Learning cards with steps due
-3. New cards (configurable daily limit, default 20)
+1. Learning cards at step 1 ("show again this session" — intra-session only)
+2. Overdue Review-state cards (sorted by most overdue first)
+3. Learning cards at step 2 (due date has passed)
+4. New cards (configurable daily limit, default 20)
+
+Session size is configurable (default: all due cards + new card limit). Can be overridden via `uv run review --limit N`.
 
 ## TUI Review Flow
 
