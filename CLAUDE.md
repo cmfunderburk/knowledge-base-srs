@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Calibration training system for building base-rate knowledge of socioeconomic, financial, and development indicators. The primary interface is a TUI-based spaced repetition app with score-driven scheduling — calibration quality (confidence interval accuracy + precision) directly modulates review intervals via a simplified FSRS model.
+Calibration training system for building base-rate knowledge of socioeconomic, financial, and development indicators. The primary interface is a TUI-based spaced repetition app with score-driven scheduling — interval scoring treats the user's response as an implied distributional forecast and uses the answer-normalized log-likelihood to modulate review intervals via a simplified FSRS model.
 
 The system curates numerical data from World Bank, GHS Urban Centre Database, and other sources into reviewable flashcards. Users practice 95% confidence interval estimation or point predictions, building intuition for forecasting across domains relevant to GJOpen/Metaculus-style questions.
 
@@ -85,6 +85,7 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 - **Retention modulation is inverted**: good score → *lower* desired retention → *longer* interval. The formula `R_d = 0.90 - 0.05*(score - 0.5)` produces range [0.875, 0.925]. This is because `interval = S * ln(R)/ln(0.9)` and lower R yields a larger ratio.
 - **All values stored in display units** (divided by scale_factor). Scoring operates directly on stored values without conversion.
 - **No state machine**: all cards use FSRS directly. New cards start at `INITIAL_STABILITY = 0.5`. No learning/review distinction or consecutive-success promotion.
+- **Aggressive lapse**: `LAPSE_FACTOR = 0.02`, `MIN_STABILITY = 0.01`. A score=0 on a new card gives ~14 min interval (re-queued). Established cards lapse proportionally (30-day card → ~11 hours).
 - **New cards randomized**: `get_due_cards` returns new cards (reps=0) in random order for interleaved practice.
 - **Intra-session repeat**: cards with computed interval < `INTRA_SESSION_THRESHOLD` (0.05 days) are re-queued within the session.
 - **Difficulty modifier** is off by default (`--difficulty-modifier` to enable).
