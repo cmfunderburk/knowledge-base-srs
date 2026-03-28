@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from pathlib import Path
 
 import polars as pl
@@ -88,88 +87,6 @@ def _column_schema() -> dict[str, type]:
 
 
 # ---------------------------------------------------------------------------
-# City population (bundled CSV)
-# ---------------------------------------------------------------------------
-
-def _handle_city_population(output_dir: Path) -> None:
-    """Read UN WUP city data from the bundled CSV and write output CSV.
-
-    The city_population CSV has two extra columns beyond the standard schema:
-    - ``city``: the city name (used as the question entity in build_deck)
-    - ``country_population``: the country's total population (used in Notes)
-
-    The ``entity`` column stores the *country* name so that build_deck can
-    look it up in ENTITIES for tagging and region assignment.
-    """
-    resources_dir = Path(__file__).parent.parent.parent / "resources"
-    csv_path = resources_dir / "un_wup_cities.csv"
-
-    if not csv_path.exists():
-        warnings.warn(
-            f"City population data not found at {csv_path}; skipping city_population.",
-            stacklevel=2,
-        )
-        return
-
-    # Load country populations from the already-fetched population CSV
-    pop_csv = output_dir / "population.csv"
-    country_pops: dict[str, float] = {}
-    if pop_csv.exists():
-        df_pop = pl.read_csv(pop_csv)
-        current_pop = df_pop.filter(pl.col("era") == "current")
-        for row in current_pop.iter_rows(named=True):
-            country_pops[row["entity"]] = row["value"]
-
-    # Collect iso3 codes for all country entities
-    entity_iso3_set = {
-        e["iso3"] for e in ENTITIES if "iso3" in e
-    }
-
-    df_cities = pl.read_csv(csv_path)
-
-    # Filter to cities whose country is in our entity list
-    df_filtered = df_cities.filter(
-        pl.col("country_iso3").is_in(list(entity_iso3_set))
-    )
-
-    # Build rows with city and country_population extra columns
-    rows: list[dict] = []
-    for row in df_filtered.iter_rows(named=True):
-        city_name = row["city"]
-        country_iso3 = row["country_iso3"]
-
-        # Find the country entity to get name / region / entity_type
-        country_entity = next(
-            (e for e in ENTITIES if e.get("iso3") == country_iso3), None
-        )
-        if country_entity is None:
-            continue
-
-        country_name = country_entity["name"]
-        region = country_entity.get("region", "")
-        country_pop = country_pops.get(country_name, 0)
-
-        rows.append({
-            "entity": country_name,
-            "entity_type": country_entity["entity_type"],
-            "region": region,
-            "era": "current",
-            "year": int(row["year"]),
-            "value": float(row["population"]),
-            "source": row["source"],
-            "city": city_name,
-            "country_population": country_pop,
-        })
-
-    # Write directly (not through build_indicator_dataframe which strips
-    # the extra city/country_population columns)
-    df_out = pl.DataFrame(rows)
-    out_path = output_dir / "city_population.csv"
-    df_out.write_csv(out_path)
-    print(f"  wrote {len(df_out)} rows → {out_path}")
-
-
-# ---------------------------------------------------------------------------
 # Core orchestrator
 # ---------------------------------------------------------------------------
 
@@ -204,11 +121,6 @@ def _run(deck_key: str, output_dir: Path | None = None) -> None:
     for indicator in indicators:
         indicator_id = indicator["id"]
         print(f"Processing {indicator_id}…")
-
-        # City population is handled separately
-        if indicator.get("current_only"):
-            _handle_city_population(output_dir)
-            continue
 
         wb_code = indicator["wb_code"]
         time_invariant = indicator.get("time_invariant", False)

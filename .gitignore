@@ -1,6 +1,7 @@
 data/**/*.csv
 data/**/*.db
 *.apkg
+resources/
 __pycache__/
 .venv/
 .worktrees/
