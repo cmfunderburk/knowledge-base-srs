@@ -1118,6 +1118,6 @@ DECKS: dict[str, dict] = {
         "deck_id": 2026032605,
         "output": "knowledge_base_descriptive_stats.apkg",
         "data_dir": "data/descriptive_stats",
-        "source_decks": ["development", "tech_adoption", "conflict_security", "finance", "urban_areas"],
+        "source_decks": ["development", "tech_adoption", "conflict_security", "finance", "education", "governance", "urban_areas"],
     },
 }

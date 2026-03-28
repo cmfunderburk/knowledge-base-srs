@@ -225,6 +225,12 @@ def test_governance_deck_exists():
     }
 
 
+def test_descriptive_stats_includes_new_decks():
+    cfg = DECKS["descriptive_stats"]
+    assert "education" in cfg["source_decks"]
+    assert "governance" in cfg["source_decks"]
+
+
 def test_descriptive_stats_deck_exists():
     from knowledge_base.config import DECKS
     cfg = DECKS["descriptive_stats"]
