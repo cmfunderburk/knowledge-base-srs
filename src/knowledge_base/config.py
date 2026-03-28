@@ -412,7 +412,7 @@ DECKS: dict[str, dict] = {
     "development": {
         "name": "Knowledge Base::Global Development Indicators",
         "deck_id": 2026032300,
-        "output": "knowledge_base.apkg",
+        "output": "knowledge_base_development.apkg",
         "data_dir": "data/development",
         "era_ranges": {
             "1960": (1955, 1965, 1960),
