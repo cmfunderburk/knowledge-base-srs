@@ -29,7 +29,7 @@ uv run review --difficulty-modifier  # enable outlier difficulty bonus
 # Anki export (sharing/backup)
 uv run build-deck <deck_key>         # generate .apkg from CSVs
 
-uv run pytest                        # 197 tests
+uv run pytest                        # 218 tests
 ```
 
 Available deck keys: `development`, `tech_adoption`, `conflict_security`, `finance`, `education`, `governance`, `urban_areas`, `descriptive_stats`
@@ -81,9 +81,12 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 ## Key Constraints
 
 ### SRS scoring
+- **Answer-normalized log-likelihood**: interval scoring uses `S = -z²/2 - ln(CoV)` transformed via logistic (`center=2.0, scale=1.0`). No `indicator_std` parameter — depends only on interval bounds and true answer.
 - **Retention modulation is inverted**: good score → *lower* desired retention → *longer* interval. The formula `R_d = 0.90 - 0.05*(score - 0.5)` produces range [0.875, 0.925]. This is because `interval = S * ln(R)/ln(0.9)` and lower R yields a larger ratio.
 - **All values stored in display units** (divided by scale_factor). Scoring operates directly on stored values without conversion.
-- **Two consecutive successes** (score >= 0.4) required for learning → review promotion.
+- **No state machine**: all cards use FSRS directly. New cards start at `INITIAL_STABILITY = 0.5`. No learning/review distinction or consecutive-success promotion.
+- **New cards randomized**: `get_due_cards` returns new cards (reps=0) in random order for interleaved practice.
+- **Intra-session repeat**: cards with computed interval < `INTRA_SESSION_THRESHOLD` (0.05 days) are re-queued within the session.
 - **Difficulty modifier** is off by default (`--difficulty-modifier` to enable).
 
 ### Anki export
