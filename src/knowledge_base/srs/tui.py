@@ -364,15 +364,18 @@ class ReviewApp(App):
 
         # Display scheduling info
         display_lines.append("")
-        if interval < INTRA_SESSION_THRESHOLD:
-            display_lines.append("[bold]Next review:[/] [red]again this session[/]")
+        minutes = interval * 24 * 60
+        if minutes < 60:
+            interval_str = f"{minutes:.0f} min"
         elif interval < 1.0:
-            hours = interval * 24
-            display_lines.append(f"[bold]Next review:[/] {hours:.0f} hours")
+            interval_str = f"{interval * 24:.0f} hours"
         elif interval < 1.5:
-            display_lines.append("[bold]Next review:[/] 1 day")
+            interval_str = "1 day"
         else:
-            display_lines.append(f"[bold]Next review:[/] {interval:.0f} days")
+            interval_str = f"{interval:.0f} days"
+        if interval < INTRA_SESSION_THRESHOLD:
+            interval_str += " [red](again this session)[/]"
+        display_lines.append(f"[bold]Next review:[/] {interval_str}")
 
         if card.get("notes"):
             display_lines.append("")
