@@ -20,7 +20,7 @@ STATS_COLUMNS = [
     "median", "std", "min_value", "min_entity", "max_value", "max_entity",
 ]
 
-WB_SOURCE_DECKS = ["development", "tech_adoption", "conflict_security", "finance"]
+WB_SOURCE_DECKS = ["development", "tech_adoption", "conflict_security", "finance", "education", "governance"]
 
 # ---------------------------------------------------------------------------
 # World Bank helpers

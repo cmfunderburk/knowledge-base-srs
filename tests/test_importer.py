@@ -323,8 +323,8 @@ class TestImportDescStats:
         """Import from the actual descriptive_stats directory."""
         conn = _make_conn()
         n = import_desc_stats(conn)
-        # 40 desc stats files × 3 stats each = 120 cards
-        assert n == 120
+        # 50 desc stats files × 3 stats each = 150 cards
+        assert n == 150
 
         # Check a specific card exists
         row = conn.execute(
@@ -369,9 +369,9 @@ class TestImportDescStats:
         conn = _make_conn()
         import_desc_stats(conn)
         n2 = import_desc_stats(conn)
-        assert n2 == 120
+        assert n2 == 150
         total = conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
-        assert total == 120
+        assert total == 150
 
 
 # ---------------------------------------------------------------------------
