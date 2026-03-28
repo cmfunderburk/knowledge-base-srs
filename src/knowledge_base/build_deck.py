@@ -14,7 +14,6 @@ import genanki
 import polars as pl
 
 from knowledge_base.card_gen import (
-    _format_number,
     build_tags,
     format_answer,
     generate_notes,
