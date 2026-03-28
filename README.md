@@ -101,8 +101,8 @@ Cross-cutting deck with distribution summary cards (mean, median, SD, min, max w
 
 The primary interface is a Textual TUI with score-driven spaced repetition scheduling.
 
-- **Scoring:** Cobb-Douglas geometric mean of accuracy and precision, with a coverage gate (0.2x penalty when the true value falls outside the stated interval). Point predictions use discrete thresholds.
-- **Scheduling:** Simplified FSRS model — good scores lower the desired retention target, producing longer review intervals. Two consecutive successes required for learning-to-review promotion.
+- **Scoring:** Answer-normalized log-likelihood. The user's interval is treated as an implied 95% CI; the score `S = -z²/2 - ln(CoV)` is transformed via logistic to [0,1]. No indicator standard deviation needed — scoring depends only on the interval bounds and true answer. Point predictions use discrete thresholds.
+- **Scheduling:** Simplified FSRS model — good scores lower the desired retention target, producing longer review intervals. All cards use FSRS directly (no learning/review state machine). New cards are presented in random order for interleaved practice.
 - **Statistics:** Brier score, calibration rate, score distribution histograms, point prediction hit rates — viewable per deck or per indicator.
 
 ## Architecture
@@ -141,7 +141,7 @@ uv run review --stats                # stats screen only
 uv run build-deck development        # → knowledge_base.apkg
 uv run build-deck tech_adoption      # → knowledge_base_tech_adoption.apkg
 
-uv run pytest                        # 197 tests
+uv run pytest                        # 218 tests
 ```
 
 Anki export requires the [Anki with Uncertainty](https://www.quantifiedintuitions.org/anki-with-uncertainty) add-on (code `694813595`).
@@ -171,7 +171,7 @@ src/knowledge_base/
     desc_stats.py        # Statistics computation helper
     build_deck.py        # CSV → .apkg (Anki export)
     srs/
-        scoring.py       # Cobb-Douglas interval scoring, point prediction scoring
+        scoring.py       # Answer-normalized log-likelihood interval scoring, point prediction scoring
         scheduler.py     # Simplified FSRS scheduling (DSR model)
         db.py            # SQLite schema, CRUD, migrations
         importer.py      # CSV → SQLite card import
@@ -187,5 +187,5 @@ data/
     urban_areas/
     descriptive_stats/
     srs.db               # Personal review state (gitignored)
-tests/                   # 197 tests
+tests/                   # 218 tests
 ```

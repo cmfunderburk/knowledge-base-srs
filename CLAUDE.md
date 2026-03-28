@@ -59,8 +59,8 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 - `desc_stats.py` — `compute_desc_stats()` helper using population std (ddof=0)
 
 ### SRS module (`srs/`)
-- `scoring.py` — Cobb-Douglas scoring (accuracy × precision geometric mean) with coverage gate; punitive point-prediction thresholds
-- `scheduler.py` — simplified FSRS: DSR model with desired-retention modulation. Good scores lower the retention target → longer intervals
+- `scoring.py` — answer-normalized log-likelihood interval scoring (`S = -z²/2 - ln(CoV)`, logistic transform); punitive point-prediction thresholds
+- `scheduler.py` — simplified FSRS: DSR model with desired-retention modulation. Good scores lower the retention target → longer intervals. No state machine — all cards use FSRS directly
 - `db.py` — SQLite schema (cards, review_log, schema_version), CRUD, migrations
 - `importer.py` — CSV → SQLite card population, idempotent upsert preserving scheduling state. Imports interval decks + descriptive stats (mean/median/SD as separate cards)
 - `stats.py` — Brier score, calibration rate, score distribution, point prediction hit rate
