@@ -78,6 +78,15 @@ def _format_display(value: float, prefix: str = "", decimals: int = 0) -> str:
     return formatted
 
 
+def _score_color(value: float) -> str:
+    """Return a Rich color name based on a score value [0, 1]."""
+    if value >= 0.7:
+        return "green"
+    if value >= 0.4:
+        return "yellow"
+    return "red"
+
+
 # ---------------------------------------------------------------------------
 # CSS
 # ---------------------------------------------------------------------------
@@ -258,22 +267,33 @@ class ReviewApp(App):
         if mode == "interval":
             result: IntervalResult = score_interval(val1, val2, true_answer, indicator_std)
             raw_score = result.score
+
+            covered_str = (
+                f"[bold green]Yes[/]" if result.covered else "[bold red]No[/]"
+            )
+            acc_c = _score_color(result.accuracy_score)
+            pre_c = _score_color(result.precision_score)
+            sc_c = _score_color(raw_score)
+
             display_lines = [
-                f"Answer: {_format_display(true_answer, prefix, decimals)}",
-                f"Your range: {_format_display(val1, prefix, decimals)} - {_format_display(val2, prefix, decimals)}",
-                f"Covered: {'Yes' if result.covered else 'No'}",
-                f"Accuracy: {result.accuracy_score:.3f}  Precision: {result.precision_score:.3f}",
-                f"Raw score: {raw_score:.3f}",
+                f"[dim]Answer:[/]   [bold]{_format_display(true_answer, prefix, decimals)}[/]",
+                f"[dim]Your range:[/] {_format_display(val1, prefix, decimals)} \u2013 {_format_display(val2, prefix, decimals)}",
+                f"[dim]Covered:[/]  {covered_str}",
+                "",
+                f"[dim]Accuracy:[/]  [{acc_c}]{result.accuracy_score:.3f}[/]    [dim]Precision:[/] [{pre_c}]{result.precision_score:.3f}[/]",
+                f"[dim]Score:[/]     [{sc_c} bold]{raw_score:.3f}[/]",
             ]
             review_mode = "interval"
             user_lower, user_upper, user_point_val = val1, val2, None
         else:
             raw_score = score_point(val1, true_answer, indicator_std)
             label = {1.0: "Perfect", 0.5: "Close", 0.0: "Miss"}[raw_score]
+            sc_c = _score_color(raw_score)
+
             display_lines = [
-                f"Answer: {_format_display(true_answer, prefix, decimals)}",
-                f"Your guess: {_format_display(val1, prefix, decimals)}",
-                f"Result: {label} ({raw_score:.1f})",
+                f"[dim]Answer:[/]     [bold]{_format_display(true_answer, prefix, decimals)}[/]",
+                f"[dim]Your guess:[/] {_format_display(val1, prefix, decimals)}",
+                f"[dim]Result:[/]     [{sc_c} bold]{label}[/] [{sc_c}]({raw_score:.1f})[/]",
             ]
             review_mode = "point"
             user_lower, user_upper, user_point_val = None, None, val1
@@ -283,7 +303,8 @@ class ReviewApp(App):
         if self.difficulty_modifier and indicator_mean is not None:
             score = apply_difficulty_modifier(raw_score, true_answer, indicator_mean, indicator_std)
             if score != raw_score:
-                display_lines.append(f"Difficulty-adjusted score: {score:.3f}")
+                adj_c = _score_color(score)
+                display_lines.append(f"[dim]Adjusted:[/]  [{adj_c} bold]{score:.3f}[/]")
 
         # --- Schedule ---
         now_str = datetime.now(timezone.utc).isoformat()
@@ -373,16 +394,17 @@ class ReviewApp(App):
         })
 
         # Display scheduling info
+        display_lines.append("")
         if interval == 0.0:
-            display_lines.append("Next review: again this session")
+            display_lines.append("[bold]Next review:[/] [red]again this session[/]")
         elif interval < 1.5:
-            display_lines.append("Next review: 1 day")
+            display_lines.append("[bold]Next review:[/] 1 day")
         else:
-            display_lines.append(f"Next review: {interval:.0f} days")
+            display_lines.append(f"[bold]Next review:[/] {interval:.0f} days")
 
         if card.get("notes"):
             display_lines.append("")
-            display_lines.append(card["notes"])
+            display_lines.append(f"[dim]{card['notes']}[/]")
 
         self.query_one("#result", Static).update("\n".join(display_lines))
         self.showing_answer = True
