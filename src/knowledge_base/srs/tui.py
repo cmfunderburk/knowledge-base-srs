@@ -429,7 +429,7 @@ class ReviewApp(App):
         # Clear input and keep visible so Enter advances to next card
         inp = self.query_one("#answer-input", Input)
         inp.value = ""
-        inp.placeholder = "Press Enter for next card"
+        inp.placeholder = "Enter or Space for next card"
 
     def action_toggle_stats(self) -> None:
         """Toggle the stats screen."""
