@@ -461,18 +461,20 @@ class ReviewApp(App):
                 lines.append(f"Miss: {hit_rates['miss']:.1%}")
             lines.append("")
 
-        # Card state counts
-        state_rows = self.conn.execute(
-            "SELECT state, COUNT(*) as cnt FROM cards GROUP BY state"
-        ).fetchall()
-        lines.append("--- Card States ---")
-        for sr in state_rows:
-            lines.append(f"  {sr['state']}: {sr['cnt']}")
+        # Card counts
+        total_cards = self.conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
+        reviewed_cards = self.conn.execute(
+            "SELECT COUNT(*) FROM cards WHERE reps > 0"
+        ).fetchone()[0]
+        lines.append("--- Cards ---")
+        lines.append(f"  Total: {total_cards}")
+        lines.append(f"  Reviewed: {reviewed_cards}")
+        lines.append(f"  New: {total_cards - reviewed_cards}")
 
         # Due today
         now = datetime.now(timezone.utc).isoformat()
         due_count = self.conn.execute(
-            "SELECT COUNT(*) FROM cards WHERE (state = 'new' OR state = 'learning' OR (state = 'review' AND due <= ?))",
+            "SELECT COUNT(*) FROM cards WHERE reps = 0 OR (reps > 0 AND due <= ?)",
             (now,),
         ).fetchone()[0]
         lines.append(f"\nDue today: {due_count}")
