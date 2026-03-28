@@ -7,6 +7,7 @@ dependencies = [
     "genanki>=0.13",
     "httpx>=0.27",
     "polars>=1.0",
+    "textual>=3.0",
 ]
 
 [project.scripts]
@@ -14,6 +15,8 @@ fetch-data = "knowledge_base.fetch_data:main"
 fetch-urban-data = "knowledge_base.fetch_urban_data:main"
 fetch-desc-stats = "knowledge_base.fetch_desc_stats:main"
 build-deck = "knowledge_base.build_deck:main"
+review = "knowledge_base.srs.tui:main"
+srs-import = "knowledge_base.srs.importer:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
