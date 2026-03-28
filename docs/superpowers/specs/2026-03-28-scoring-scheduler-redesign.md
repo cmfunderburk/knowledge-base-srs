@@ -139,6 +139,17 @@ Schema version bump. Changes to `cards` table:
 - Default `stability` for new cards: `INITIAL_STABILITY` (0.5)
 - Migration: any existing card with `stability < INITIAL_STABILITY` gets reset to `INITIAL_STABILITY`
 
+### Card queue ordering
+
+`get_due_cards` currently uses a state-based priority system (learning step-1 > overdue review > learning step-2 > new). With the state machine removed, the new ordering is:
+
+1. **Overdue cards** (`due <= now` and `reps > 0`): ordered by `due ASC` (most overdue first)
+2. **New cards** (`reps = 0`): presented in **random order** (interleaved practice — avoids mass-practicing a single indicator or category up front)
+
+The random ordering for new cards is important: without it, cards are returned in insertion order which groups them by indicator/deck, defeating the calibration benefit of interleaved practice across diverse topics.
+
+Implementation: `ORDER BY CASE WHEN reps > 0 THEN 0 ELSE 1 END, CASE WHEN reps > 0 THEN due END ASC, CASE WHEN reps = 0 THEN RANDOM() END`
+
 ### Intra-session repeat behavior
 
 Currently, failed learning cards (interval = 0) are re-queued for intra-session repeat. Without the state machine, this behavior is driven by the interval value: if `compute_interval` returns a value below a threshold (e.g., < 0.05 days = ~1.2 hours), re-queue the card for intra-session repeat. The threshold aligns with the idea that sub-hour intervals should be handled within the current session rather than scheduling for later.
@@ -159,7 +170,7 @@ New cards are initialized with:
 | `srs/scoring.py` | New formula, remove indicator_std param, new IntervalResult fields, new constants |
 | `srs/scheduler.py` | MIN_STABILITY to 0.1, add INITIAL_STABILITY, add INTRA_SESSION_THRESHOLD |
 | `srs/tui.py` | Remove state branching, update display, simplify review loop |
-| `srs/db.py` | Schema migration: drop state/consecutive_successes columns |
+| `srs/db.py` | Schema migration: drop state/consecutive_successes columns; rewrite `get_due_cards` query (overdue first by due ASC, then new cards in random order) |
 | `srs/importer.py` | Initialize new cards without state, with INITIAL_STABILITY |
 | `tests/test_scoring.py` | Rewrite interval tests for new formula, remove indicator_std from test calls |
 | `tests/test_scheduler.py` | Update `test_lapse_floors_at_one` for MIN_STABILITY=0.1, add INITIAL_STABILITY tests |
