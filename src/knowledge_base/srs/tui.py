@@ -205,6 +205,7 @@ class ReviewApp(App):
         inp = self.query_one("#answer-input", Input)
         inp.display = True
         inp.value = ""
+        inp.placeholder = "Enter range (e.g. 1000-5000) or point estimate"
         inp.focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -394,8 +395,10 @@ class ReviewApp(App):
             if refreshed:
                 self.cards.append(dict(refreshed))
 
-        # Hide input until next card
-        self._hide_input()
+        # Clear input and keep visible so Enter advances to next card
+        inp = self.query_one("#answer-input", Input)
+        inp.value = ""
+        inp.placeholder = "Press Enter for next card"
 
     def action_toggle_stats(self) -> None:
         """Toggle the stats screen."""
