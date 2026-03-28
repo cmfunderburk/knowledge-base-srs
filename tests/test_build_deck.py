@@ -1,13 +1,15 @@
 import polars as pl
 import pytest
 from pathlib import Path
-from knowledge_base.build_deck import (
+from knowledge_base.card_gen import (
     generate_question,
     generate_notes,
     generate_notes_land_area,
-    compute_reference_averages,
     build_tags,
     format_answer,
+)
+from knowledge_base.build_deck import (
+    compute_reference_averages,
     generate_cloze_content,
     generate_desc_stats_note_field,
 )
