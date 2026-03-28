@@ -195,6 +195,36 @@ def test_education_deck_exists():
     }
 
 
+def test_governance_deck_exists():
+    assert "governance" in DECKS
+    deck = DECKS["governance"]
+    assert deck["name"] == "Knowledge Base::Governance"
+    assert deck["deck_id"] == 2026032807
+    assert deck["data_dir"] == "data/governance"
+    assert len(deck["indicators"]) == 6
+    eras = deck["era_ranges"]
+    assert set(eras.keys()) == {"2000", "current"}
+    assert eras["2000"] == (1998, 2002, 2000)
+    assert eras["current"] == (2020, 2026, 2026)
+    # All WGI indicators: same scale, 2 decimals, no regional aggregates
+    for ind in deck["indicators"]:
+        assert ind["decimals"] == 2
+        assert ind["unit_prefix"] == ""
+        assert ind["category"] == "governance"
+        assert ind["has_regional_aggregates"] is False
+        assert ind.get("scale_factor", 1) == 1
+    # Check specific indicator IDs
+    ids = {i["id"] for i in deck["indicators"]}
+    assert ids == {
+        "govt_effectiveness",
+        "corruption_control",
+        "rule_of_law",
+        "regulatory_quality",
+        "voice_accountability",
+        "political_stability",
+    }
+
+
 def test_descriptive_stats_deck_exists():
     from knowledge_base.config import DECKS
     cfg = DECKS["descriptive_stats"]
