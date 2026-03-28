@@ -147,11 +147,11 @@ class TestUpdateStability:
         assert s_new == pytest.approx(10.0 * LAPSE_FACTOR)
 
     def test_lapse_floors_at_min_stability(self):
-        """Lapse from very low stability → floored at MIN_STABILITY (0.1)."""
-        # 0.2 * 0.3 = 0.06 < MIN_STABILITY=0.1 → should return 0.1
-        s_new = update_stability(0.2, 0.5, 0.1)
+        """Lapse from very low stability → floored at MIN_STABILITY (0.01)."""
+        # 0.02 * 0.02 = 0.0004 < MIN_STABILITY=0.01 → should return 0.01
+        s_new = update_stability(0.02, 0.5, 0.1)
         assert s_new == pytest.approx(MIN_STABILITY)
-        assert MIN_STABILITY == pytest.approx(0.1)
+        assert MIN_STABILITY == pytest.approx(0.01)
 
     def test_lower_difficulty_faster_growth(self):
         """Lower difficulty → larger stability gain on success."""
@@ -166,7 +166,7 @@ class TestUpdateStability:
 
 class TestSchedulerConstants:
     def test_min_stability_value(self):
-        assert MIN_STABILITY == pytest.approx(0.1)
+        assert MIN_STABILITY == pytest.approx(0.01)
 
     def test_initial_stability_value(self):
         assert INITIAL_STABILITY == pytest.approx(0.5)
