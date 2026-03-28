@@ -133,8 +133,8 @@ class ReviewApp(App):
     TITLE = "SRS Review"
 
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
-        Binding("s", "toggle_stats", "Stats"),
+        Binding("ctrl+q", "quit", "Quit", priority=True),
+        Binding("ctrl+s", "toggle_stats", "Stats", priority=True),
     ]
 
     def __init__(
@@ -185,7 +185,7 @@ class ReviewApp(App):
         if not self.cards:
             self.query_one("#card-header", Static).update("No cards due")
             self.query_one("#question", Static).update(
-                "All caught up! Press q to quit."
+                "All caught up! Press Ctrl+Q to quit."
             )
             self._hide_input()
             return
@@ -207,19 +207,6 @@ class ReviewApp(App):
         inp.value = ""
         inp.focus()
 
-    def on_key(self, event) -> None:
-        """Intercept q/s when the input is not accepting answers."""
-        inp = self.query_one("#answer-input", Input)
-        if inp.display and not self.showing_answer:
-            # Input is visible and waiting for an answer — let keys through
-            return
-        if event.key == "q":
-            event.prevent_default()
-            self.exit()
-        elif event.key == "s":
-            event.prevent_default()
-            self.action_toggle_stats()
-
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle answer submission or advance to next card."""
         if self.showing_stats:
@@ -234,7 +221,7 @@ class ReviewApp(App):
             if self.card_index >= len(self.cards):
                 self.query_one("#card-header", Static).update("Session complete")
                 self.query_one("#question", Static).update(
-                    "All cards reviewed! Press q to quit or s for stats."
+                    "All cards reviewed! Press Ctrl+Q to quit or Ctrl+S for stats."
                 )
                 self._hide_input()
                 self.query_one("#result", Static).update("")
