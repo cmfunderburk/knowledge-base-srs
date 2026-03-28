@@ -231,8 +231,8 @@ class ReviewApp(App):
         inp.focus()
 
     def on_key(self, event) -> None:
-        """Allow Space to advance when showing an answer."""
-        if self.showing_answer and event.key == "space":
+        """Allow Space or Enter to advance when showing an answer."""
+        if self.showing_answer and event.key in ("space", "enter"):
             event.prevent_default()
             self._advance_card()
 
@@ -386,10 +386,8 @@ class ReviewApp(App):
             if refreshed:
                 self.cards.append(dict(refreshed))
 
-        # Clear input and keep visible so Enter advances to next card
-        inp = self.query_one("#answer-input", Input)
-        inp.value = ""
-        inp.placeholder = "Enter or Space for next card"
+        # Hide input so Space/Enter advance via on_key / on_input_submitted
+        self._hide_input()
 
     def action_toggle_stats(self) -> None:
         """Toggle the stats screen."""
