@@ -18,7 +18,7 @@ from knowledge_base.srs.db import (
     update_card_scheduling,
 )
 from knowledge_base.srs.scheduler import (
-    SUCCESS_THRESHOLD,
+    INTRA_SESSION_THRESHOLD,
     compute_desired_retention,
     compute_interval,
     update_difficulty,
@@ -266,22 +266,14 @@ class ReviewApp(App):
             self.query_one("#result", Static).update(f"[red]{exc}[/red]")
             return
 
-        if indicator_std is None or indicator_std == 0:
-            self.query_one("#result", Static).update(
-                "[red]Card missing indicator_std; cannot score.[/red]"
-            )
-            return
-
         # --- Score ---
         if mode == "interval":
-            result: IntervalResult = score_interval(val1, val2, true_answer, indicator_std)
+            result: IntervalResult = score_interval(val1, val2, true_answer)
             raw_score = result.score
 
             covered_str = (
                 f"[bold green]Yes[/]" if result.covered else "[bold red]No[/]"
             )
-            acc_c = _score_color(result.accuracy_score)
-            pre_c = _score_color(result.precision_score)
             sc_c = _score_color(raw_score)
 
             display_lines = [
@@ -289,12 +281,17 @@ class ReviewApp(App):
                 f"[dim]Your range:[/] {_format_display(val1, prefix, decimals)} \u2013 {_format_display(val2, prefix, decimals)}",
                 f"[dim]Covered:[/]  {covered_str}",
                 "",
-                f"[dim]Accuracy:[/]  [{acc_c}]{result.accuracy_score:.3f}[/]    [dim]Precision:[/] [{pre_c}]{result.precision_score:.3f}[/]",
+                f"[dim]z-score:[/]  {result.z:.2f}    [dim]CoV:[/] {result.cov:.1%}",
                 f"[dim]Score:[/]     [{sc_c} bold]{raw_score:.3f}[/]",
             ]
             review_mode = "interval"
             user_lower, user_upper, user_point_val = val1, val2, None
         else:
+            if indicator_std is None or indicator_std == 0:
+                self.query_one("#result", Static).update(
+                    "[red]Card missing indicator_std; cannot score point prediction.[/red]"
+                )
+                return
             raw_score = score_point(val1, true_answer, indicator_std)
             label = {1.0: "Perfect", 0.5: "Close", 0.0: "Miss"}[raw_score]
             sc_c = _score_color(raw_score)
@@ -307,64 +304,29 @@ class ReviewApp(App):
             review_mode = "point"
             user_lower, user_upper, user_point_val = None, None, val1
 
-        # Apply difficulty modifier if enabled and indicator_mean available
+        # --- Schedule ---
+        now_str = datetime.now(timezone.utc).isoformat()
+        old_difficulty = card["difficulty"]
+        old_stability = card["stability"]
+
+        # Apply difficulty modifier if enabled
         score = raw_score
-        if self.difficulty_modifier and indicator_mean is not None:
+        if self.difficulty_modifier and indicator_mean is not None and indicator_std is not None and indicator_std != 0:
             score = apply_difficulty_modifier(raw_score, true_answer, indicator_mean, indicator_std)
             if score != raw_score:
                 adj_c = _score_color(score)
                 display_lines.append(f"[dim]Adjusted:[/]  [{adj_c} bold]{score:.3f}[/]")
 
-        # --- Schedule ---
-        now_str = datetime.now(timezone.utc).isoformat()
-        old_difficulty = card["difficulty"]
-        old_stability = card["stability"]
-        old_state = card["state"]
-        consecutive = card["consecutive_successes"]
-
-        success = score >= SUCCESS_THRESHOLD
         new_difficulty = update_difficulty(old_difficulty, score)
-
-        # State transitions
-        if old_state in ("new", "learning"):
-            if success:
-                consecutive += 1
-            else:
-                consecutive = 0
-
-            if consecutive >= 2:
-                new_state = "review"
-                new_stability = 1.0
-                desired_ret = compute_desired_retention(score)
-                interval = compute_interval(new_stability, desired_ret)
-            elif consecutive == 0:
-                new_state = "learning"
-                new_stability = old_stability
-                interval = 0.0  # show again this session
-                desired_ret = compute_desired_retention(score)
-            else:
-                # consecutive == 1
-                new_state = "learning"
-                new_stability = old_stability
-                interval = 1.0  # due tomorrow
-                desired_ret = compute_desired_retention(score)
-        else:
-            # review state
-            new_stability = update_stability(old_stability, new_difficulty, score)
-            desired_ret = compute_desired_retention(score)
-            interval = compute_interval(new_stability, desired_ret)
-            new_state = "review"
-            if success:
-                consecutive += 1
-            else:
-                consecutive = 0
+        new_stability = update_stability(old_stability, new_difficulty, score)
+        desired_ret = compute_desired_retention(score)
+        interval = compute_interval(new_stability, desired_ret)
 
         # Compute due date
-        if interval == 0.0:
-            due_str = now_str  # due immediately
+        from datetime import timedelta
+        if interval < INTRA_SESSION_THRESHOLD:
+            due_str = now_str
         else:
-            from datetime import timedelta
-
             due_dt = datetime.now(timezone.utc) + timedelta(days=interval)
             due_str = due_dt.isoformat()
 
@@ -384,8 +346,6 @@ class ReviewApp(App):
             "last_review": now_str,
             "due": due_str,
             "reps": card["reps"] + 1,
-            "consecutive_successes": consecutive,
-            "state": new_state,
         })
 
         insert_review(self.conn, {
@@ -404,7 +364,7 @@ class ReviewApp(App):
 
         # Display scheduling info
         display_lines.append("")
-        if interval == 0.0:
+        if interval < INTRA_SESSION_THRESHOLD:
             display_lines.append("[bold]Next review:[/] [red]again this session[/]")
         elif interval < 1.5:
             display_lines.append("[bold]Next review:[/] 1 day")
@@ -418,8 +378,8 @@ class ReviewApp(App):
         self.query_one("#result", Static).update("\n".join(display_lines))
         self.showing_answer = True
 
-        # Re-queue failed learning cards for intra-session repeat
-        if interval == 0.0:
+        # Re-queue cards with sub-threshold intervals for intra-session repeat
+        if interval < INTRA_SESSION_THRESHOLD:
             refreshed = self.conn.execute(
                 "SELECT * FROM cards WHERE card_id = ?", (card["card_id"],)
             ).fetchone()
