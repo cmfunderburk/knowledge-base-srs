@@ -15,8 +15,10 @@ DIFFICULTY_ANCHOR = 0.7
 MIN_DIFFICULTY = 0.05
 MAX_DIFFICULTY = 1.0
 LAPSE_FACTOR = 0.3
-MIN_STABILITY = 1.0
+MIN_STABILITY = 0.1
 MIN_INTERVAL = 1.0
+INITIAL_STABILITY = 0.5
+INTRA_SESSION_THRESHOLD = 0.05  # days (~1.2 hours); below this, re-queue in-session
 
 
 # ---------------------------------------------------------------------------

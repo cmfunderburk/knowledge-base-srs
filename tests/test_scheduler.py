@@ -7,6 +7,8 @@ from knowledge_base.srs.scheduler import (
     MIN_INTERVAL,
     LAPSE_FACTOR,
     MIN_STABILITY,
+    INITIAL_STABILITY,
+    INTRA_SESSION_THRESHOLD,
     compute_retrievability,
     compute_desired_retention,
     compute_interval,
@@ -144,14 +146,34 @@ class TestUpdateStability:
         s_new = update_stability(10.0, 0.5, 0.2)
         assert s_new == pytest.approx(10.0 * LAPSE_FACTOR)
 
-    def test_lapse_floors_at_one(self):
-        """Lapse from very low stability → floored at MIN_STABILITY."""
-        # 1.0 * 0.3 = 0.3 < MIN_STABILITY=1.0 → should return 1.0
-        s_new = update_stability(1.0, 0.5, 0.1)
+    def test_lapse_floors_at_min_stability(self):
+        """Lapse from very low stability → floored at MIN_STABILITY (0.1)."""
+        # 0.2 * 0.3 = 0.06 < MIN_STABILITY=0.1 → should return 0.1
+        s_new = update_stability(0.2, 0.5, 0.1)
         assert s_new == pytest.approx(MIN_STABILITY)
+        assert MIN_STABILITY == pytest.approx(0.1)
 
     def test_lower_difficulty_faster_growth(self):
         """Lower difficulty → larger stability gain on success."""
         s_low_d = update_stability(10.0, 0.2, 0.8)   # low difficulty
         s_high_d = update_stability(10.0, 0.8, 0.8)  # high difficulty
         assert s_low_d > s_high_d
+
+
+# ---------------------------------------------------------------------------
+# TestSchedulerConstants
+# ---------------------------------------------------------------------------
+
+class TestSchedulerConstants:
+    def test_min_stability_value(self):
+        assert MIN_STABILITY == pytest.approx(0.1)
+
+    def test_initial_stability_value(self):
+        assert INITIAL_STABILITY == pytest.approx(0.5)
+
+    def test_intra_session_threshold_value(self):
+        assert INTRA_SESSION_THRESHOLD == pytest.approx(0.05)
+
+    def test_initial_above_min(self):
+        """INITIAL_STABILITY must be above MIN_STABILITY."""
+        assert INITIAL_STABILITY > MIN_STABILITY
