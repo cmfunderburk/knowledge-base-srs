@@ -207,9 +207,25 @@ class ReviewApp(App):
         inp.value = ""
         inp.focus()
 
+    def on_key(self, event) -> None:
+        """Intercept q/s when the input is not accepting answers."""
+        inp = self.query_one("#answer-input", Input)
+        if inp.display and not self.showing_answer:
+            # Input is visible and waiting for an answer — let keys through
+            return
+        if event.key == "q":
+            event.prevent_default()
+            self.exit()
+        elif event.key == "s":
+            event.prevent_default()
+            self.action_toggle_stats()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle answer submission or advance to next card."""
         if self.showing_stats:
+            return
+
+        if not self.cards or self.card_index >= len(self.cards):
             return
 
         if self.showing_answer:
