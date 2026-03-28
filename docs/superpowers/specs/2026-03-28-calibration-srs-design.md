@@ -214,14 +214,14 @@ The score shifts the target retention per-review:
 
 ```
 base_retention = 0.90
-retention = base_retention + 0.05 * (score - 0.5)   # range: [0.875, 0.925]
+retention = base_retention - 0.05 * (score - 0.5)   # range: [0.875, 0.925]
 ```
 
-- Score 1.0 → 92.5% target → longer interval (system trusts you)
+- Score 1.0 → 87.5% target → longer interval (system trusts you, accepts lower retention)
 - Score 0.5 → 90% target → baseline interval
-- Score 0.0 → 85% target → shorter interval
+- Score 0.0 → 92.5% target → shorter interval (demands high retention, more practice)
 
-The range is deliberately asymmetric around baseline: -2.5% downside vs. +2.5% upside. The asymmetry is mild; the conservative bias comes from the scoring algorithm itself (Cobb-Douglas + coverage gate) producing lower scores more readily than high ones.
+Good scores *lower* the retention target, producing longer intervals — the system is more relaxed about retention for cards you've demonstrated knowledge of. Bad scores *raise* it, demanding more frequent review. The range is symmetric around baseline (±2.5%).
 
 ### Interval Computation
 

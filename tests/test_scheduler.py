@@ -48,12 +48,12 @@ class TestDesiredRetention:
         assert compute_desired_retention(0.5) == pytest.approx(0.90)
 
     def test_perfect(self):
-        """score=1.0 → 0.90 + 0.05*0.5 = 0.925."""
-        assert compute_desired_retention(1.0) == pytest.approx(0.925)
+        """score=1.0 → 0.90 - 0.05*0.5 = 0.875 (lower target → longer interval)."""
+        assert compute_desired_retention(1.0) == pytest.approx(0.875)
 
     def test_zero(self):
-        """score=0.0 → 0.90 + 0.05*(-0.5) = 0.875."""
-        assert compute_desired_retention(0.0) == pytest.approx(0.875)
+        """score=0.0 → 0.90 - 0.05*(-0.5) = 0.925 (higher target → shorter interval)."""
+        assert compute_desired_retention(0.0) == pytest.approx(0.925)
 
     def test_range_check(self):
         """Result is always in [0.875, 0.925]."""

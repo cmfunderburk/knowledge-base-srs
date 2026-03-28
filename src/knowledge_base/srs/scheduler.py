@@ -36,10 +36,13 @@ def compute_retrievability(elapsed_days: float, stability: float) -> float:
 def compute_desired_retention(score: float) -> float:
     """Return desired retention based on recent performance score.
 
-    R_d = BASE_RETENTION + RETENTION_SCALE * (score - 0.5)
+    R_d = BASE_RETENTION - RETENTION_SCALE * (score - 0.5)
+
+    Good scores lower the retention target → longer intervals (system trusts you).
+    Bad scores raise it → shorter intervals (demands more practice).
     Range: [0.875, 0.925]
     """
-    return BASE_RETENTION + RETENTION_SCALE * (score - 0.5)
+    return BASE_RETENTION - RETENTION_SCALE * (score - 0.5)
 
 
 def compute_interval(stability: float, desired_retention: float) -> float:
