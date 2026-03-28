@@ -200,6 +200,19 @@ class ReviewApp(App):
             return
         self._show_question()
 
+    def _advance_card(self) -> None:
+        """Advance to the next card in the queue."""
+        self.card_index += 1
+        if self.card_index >= len(self.cards):
+            self.query_one("#card-header", Static).update("Session complete")
+            self.query_one("#question", Static).update(
+                "All cards reviewed! Press Ctrl+Q to quit or Ctrl+S for stats."
+            )
+            self._hide_input()
+            self.query_one("#result", Static).update("")
+            return
+        self._show_question()
+
     def _show_question(self) -> None:
         """Display the current card's question."""
         card = self.cards[self.card_index]
@@ -217,6 +230,12 @@ class ReviewApp(App):
         inp.placeholder = "Enter range (e.g. 1000-5000) or point estimate"
         inp.focus()
 
+    def on_key(self, event) -> None:
+        """Allow Space to advance when showing an answer."""
+        if self.showing_answer and event.key == "space":
+            event.prevent_default()
+            self._advance_card()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle answer submission or advance to next card."""
         if self.showing_stats:
@@ -226,17 +245,7 @@ class ReviewApp(App):
             return
 
         if self.showing_answer:
-            # Advance to next card
-            self.card_index += 1
-            if self.card_index >= len(self.cards):
-                self.query_one("#card-header", Static).update("Session complete")
-                self.query_one("#question", Static).update(
-                    "All cards reviewed! Press Ctrl+Q to quit or Ctrl+S for stats."
-                )
-                self._hide_input()
-                self.query_one("#result", Static).update("")
-                return
-            self._show_question()
+            self._advance_card()
             return
 
         # Score the answer
