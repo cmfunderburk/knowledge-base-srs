@@ -157,6 +157,12 @@ class ReviewApp(App):
         self.showing_answer: bool = False
         self.showing_stats: bool = False
 
+    def _hide_input(self) -> None:
+        """Hide the answer input and release focus."""
+        inp = self.query_one("#answer-input", Input)
+        inp.display = False
+        inp.blur()
+
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical():
@@ -181,7 +187,7 @@ class ReviewApp(App):
             self.query_one("#question", Static).update(
                 "All caught up! Press q to quit."
             )
-            self.query_one("#answer-input", Input).display = False
+            self._hide_input()
             return
         self._show_question()
 
@@ -214,7 +220,7 @@ class ReviewApp(App):
                 self.query_one("#question", Static).update(
                     "All cards reviewed! Press q to quit or s for stats."
                 )
-                self.query_one("#answer-input", Input).display = False
+                self._hide_input()
                 self.query_one("#result", Static).update("")
                 return
             self._show_question()
@@ -386,7 +392,7 @@ class ReviewApp(App):
                 self.cards.append(dict(refreshed))
 
         # Hide input until next card
-        self.query_one("#answer-input", Input).display = False
+        self._hide_input()
 
     def action_toggle_stats(self) -> None:
         """Toggle the stats screen."""
@@ -403,7 +409,7 @@ class ReviewApp(App):
     def _show_stats_screen(self) -> None:
         """Display aggregate statistics."""
         self.showing_stats = True
-        self.query_one("#answer-input", Input).display = False
+        self._hide_input()
         self.query_one("#card-header", Static).update("Statistics")
         self.query_one("#question", Static).update("")
         self.query_one("#result", Static).update("")
