@@ -24,6 +24,12 @@ from knowledge_base.config import DECKS, ENTITIES
 from knowledge_base.srs.db import init_db, upsert_card
 
 
+# Decks that use interval/point prediction cards (not cloze)
+IMPORTABLE_DECKS = [k for k in DECKS if k != "descriptive_stats"]
+
+DEFAULT_DESC_STATS_DIR = Path("data/descriptive_stats")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -42,18 +48,7 @@ def _load_desc_stats(
 ) -> dict | None:
     """Load mean and std from a descriptive stats CSV for an indicator.
 
-    Parameters
-    ----------
-    desc_stats_dir:
-        Directory containing desc stats CSV files.
-    indicator_id:
-        Indicator id used to construct the filename.
-    prefix:
-        Optional filename prefix (e.g. "urban_" for the urban deck).
-
-    Returns
-    -------
-    dict with keys "mean" and "std", or None if file is missing or empty.
+    Returns dict with keys "mean" and "std", or None if file is missing or empty.
     """
     filename = f"{prefix}{indicator_id}.csv"
     csv_path = desc_stats_dir / filename
@@ -66,8 +61,15 @@ def _load_desc_stats(
     return {"mean": float(row["mean"]), "std": float(row["std"])}
 
 
+def _desc_stats_prefix_for_deck(deck_key: str) -> str:
+    """Return the desc stats filename prefix for a deck."""
+    if deck_key == "urban_areas":
+        return "urban_"
+    return ""
+
+
 # ---------------------------------------------------------------------------
-# Main import function
+# Deck import (interval/point prediction cards)
 # ---------------------------------------------------------------------------
 
 
@@ -76,31 +78,14 @@ def import_deck(
     deck_key: str,
     data_dir: Path | None = None,
     desc_stats_dir: Path | None = None,
-    desc_stats_prefix: str = "",
+    desc_stats_prefix: str | None = None,
 ) -> int:
     """Import cards from CSV data files into the SRS database.
 
     Reads CSVs matching indicator ids for the given deck, generates card
     content, and upserts each non-region/non-aggregate row.
 
-    Parameters
-    ----------
-    conn:
-        Open sqlite3 connection (from init_db).
-    deck_key:
-        Key into the DECKS registry.
-    data_dir:
-        Override for the deck's data directory.
-    desc_stats_dir:
-        Directory containing descriptive stats CSVs. If None, desc stats
-        are not attached to cards.
-    desc_stats_prefix:
-        Filename prefix for desc stats files (e.g. "urban_").
-
-    Returns
-    -------
-    int
-        Count of cards upserted.
+    Returns count of cards upserted.
     """
     if deck_key not in DECKS:
         raise KeyError(f"Unknown deck key: {deck_key!r}. Available: {list(DECKS)}")
@@ -111,6 +96,8 @@ def import_deck(
     ref_entity_type = deck_cfg.get("reference_entity_type", "region")
     indicator_by_id = {ind["id"]: ind for ind in deck_cfg["indicators"]}
     resolved_data_dir = data_dir or Path(deck_cfg["data_dir"])
+    resolved_stats_dir = desc_stats_dir or DEFAULT_DESC_STATS_DIR
+    resolved_prefix = desc_stats_prefix if desc_stats_prefix is not None else _desc_stats_prefix_for_deck(deck_key)
 
     count = 0
     csv_files = sorted(resolved_data_dir.glob("*.csv"))
@@ -131,9 +118,7 @@ def import_deck(
         is_land_area = indicator_id == "land_area"
 
         # Load descriptive stats (values are in raw units; divide by scale_factor)
-        raw_stats = None
-        if desc_stats_dir is not None:
-            raw_stats = _load_desc_stats(desc_stats_dir, indicator_id, desc_stats_prefix)
+        raw_stats = _load_desc_stats(resolved_stats_dir, indicator_id, resolved_prefix)
         indicator_mean = raw_stats["mean"] / scale_factor if raw_stats else None
         indicator_std = raw_stats["std"] / scale_factor if raw_stats else None
 
@@ -165,7 +150,6 @@ def import_deck(
             entity_slug = entity_cfg["tag_slug"]
             entity_type = entity_cfg["entity_type"]
 
-            # Question
             question = generate_question(
                 entity=entity_name,
                 indicator_name=indicator["name"],
@@ -174,7 +158,6 @@ def import_deck(
                 era=era,
             )
 
-            # Notes
             world_avg, region_avgs = ref_by_era.get(era, (None, {}))
             if is_land_area:
                 region_name = entity_cfg.get("region", "")
@@ -196,7 +179,6 @@ def import_deck(
                     decimals=decimals,
                 )
 
-            # Tags
             tags = build_tags(
                 category=indicator["category"],
                 indicator_id=indicator_id,
@@ -205,10 +187,9 @@ def import_deck(
                 era=era,
             )
 
-            # Display answer (in display units)
             display_answer = value / scale_factor
 
-            card = {
+            upsert_card(conn, {
                 "deck": deck_key,
                 "indicator_id": indicator_id,
                 "entity": entity_name,
@@ -223,12 +204,140 @@ def import_deck(
                 "indicator_std": indicator_std,
                 "scale_factor": scale_factor,
                 "decimals": decimals,
-            }
-
-            upsert_card(conn, card)
+            })
             count += 1
 
     return count
+
+
+# ---------------------------------------------------------------------------
+# Descriptive stats import (mean/median/SD as separate point-prediction cards)
+# ---------------------------------------------------------------------------
+
+
+def _generate_stat_question(
+    stat_label: str,
+    indicator_name: str,
+    year: int,
+    unit_label: str,
+    n: int,
+    source_deck: str,
+) -> str:
+    """Generate a question for a descriptive statistic card."""
+    scope = "cities" if source_deck == "urban_areas" else "countries"
+    return (
+        f"What is the {stat_label} {indicator_name} across {n} {scope} "
+        f"as of {year}, {unit_label}?"
+    )
+
+
+def import_desc_stats(
+    conn,
+    desc_stats_dir: Path | None = None,
+) -> int:
+    """Import descriptive statistics as point-prediction cards.
+
+    Creates separate cards for mean, median, and SD of each indicator.
+    Uses the indicator's own mean/std for scoring context.
+
+    Returns count of cards upserted.
+    """
+    resolved_dir = desc_stats_dir or DEFAULT_DESC_STATS_DIR
+    csv_files = sorted(resolved_dir.glob("*.csv"))
+
+    count = 0
+    for csv_path in csv_files:
+        df = pl.read_csv(csv_path)
+        if len(df) == 0:
+            continue
+
+        row = df.row(0, named=True)
+
+        indicator_id = row["indicator_id"]
+        indicator_name = row["indicator_name"]
+        category = row["category"]
+        source_deck = row["source_deck"]
+        unit_label = row["unit_label"]
+        unit_prefix = row.get("unit_prefix", "")
+        decimals = int(row.get("decimals", 0))
+        scale_factor = int(row.get("scale_factor", 1))
+        year = int(row["year"])
+        n = int(row["n"])
+
+        raw_mean = float(row["mean"])
+        raw_median = float(row["median"])
+        raw_std = float(row["std"])
+
+        # Convert to display units
+        disp_mean = raw_mean / scale_factor
+        disp_median = raw_median / scale_factor
+        disp_std = raw_std / scale_factor
+
+        # Notes: provide the other stats as context
+        notes = (
+            f"Source: {source_deck} descriptive stats ({year}) | "
+            f"n={n}, min={row['min_entity']}, max={row['max_entity']}"
+        )
+
+        stats_to_import = [
+            ("mean", disp_mean),
+            ("median", disp_median),
+            ("standard deviation", disp_std),
+        ]
+
+        for stat_label, stat_value in stats_to_import:
+            question = _generate_stat_question(
+                stat_label=stat_label,
+                indicator_name=indicator_name,
+                year=year,
+                unit_label=unit_label,
+                n=n,
+                source_deck=source_deck,
+            )
+
+            tags = [
+                f"category::{category}",
+                f"indicator::{indicator_id}",
+                f"stat::{stat_label.replace(' ', '_')}",
+                f"source_deck::{source_deck}",
+            ]
+
+            upsert_card(conn, {
+                "deck": "descriptive_stats",
+                "indicator_id": f"{indicator_id}__{stat_label.replace(' ', '_')}",
+                "entity": f"all_{source_deck}",
+                "era": str(year),
+                "question": question,
+                "answer": stat_value,
+                "unit_prefix": unit_prefix,
+                "unit_label": unit_label,
+                "notes": notes,
+                "tags": json.dumps(tags),
+                "indicator_mean": disp_mean,
+                "indicator_std": disp_std if disp_std > 0 else None,
+                "scale_factor": scale_factor,
+                "decimals": decimals,
+            })
+            count += 1
+
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Bulk import
+# ---------------------------------------------------------------------------
+
+
+def import_all(conn, desc_stats_dir: Path | None = None) -> dict[str, int]:
+    """Import all decks plus descriptive stats cards.
+
+    Returns dict mapping deck_key → card count.
+    """
+    results = {}
+    for deck_key in IMPORTABLE_DECKS:
+        results[deck_key] = import_deck(conn, deck_key, desc_stats_dir=desc_stats_dir)
+    results["descriptive_stats"] = import_desc_stats(conn, desc_stats_dir=desc_stats_dir)
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -237,15 +346,31 @@ def import_deck(
 
 
 def main() -> None:
-    """CLI entry point: import a deck by key into data/srs.db."""
-    if len(sys.argv) < 2:
-        print("Usage: import-deck <deck_key>")
-        print(f"Available decks: {', '.join(DECKS)}")
-        raise SystemExit(1)
+    """CLI entry point: import decks into data/srs.db."""
+    import argparse
 
-    deck_key = sys.argv[1]
-    db_path = Path("data/srs.db")
+    parser = argparse.ArgumentParser(description="Import Knowledge Base decks into SRS")
+    parser.add_argument(
+        "deck", nargs="?", default=None,
+        help=f"Deck to import (omit for all). Choices: {', '.join(IMPORTABLE_DECKS)}, descriptive_stats, --all",
+    )
+    parser.add_argument("--all", action="store_true", help="Import all decks")
+    parser.add_argument("--db", default="data/srs.db", help="Database path (default: data/srs.db)")
+    args = parser.parse_args()
+
+    db_path = Path(args.db)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = init_db(db_path)
-    n = import_deck(conn, deck_key)
-    print(f"Imported {n} cards for deck '{deck_key}' into {db_path}")
+
+    if args.all or args.deck is None:
+        results = import_all(conn)
+        total = sum(results.values())
+        for dk, n in results.items():
+            print(f"  {dk}: {n} cards")
+        print(f"Total: {total} cards imported into {db_path}")
+    elif args.deck == "descriptive_stats":
+        n = import_desc_stats(conn)
+        print(f"Imported {n} descriptive stats cards into {db_path}")
+    else:
+        n = import_deck(conn, args.deck)
+        print(f"Imported {n} cards for '{args.deck}' into {db_path}")

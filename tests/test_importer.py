@@ -6,7 +6,14 @@ from pathlib import Path
 import pytest
 
 from knowledge_base.srs.db import init_db
-from knowledge_base.srs.importer import import_deck, _find_entity_config, _load_desc_stats
+from knowledge_base.srs.importer import (
+    import_deck,
+    import_desc_stats,
+    import_all,
+    _find_entity_config,
+    _load_desc_stats,
+    _desc_stats_prefix_for_deck,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sample_srs_import"
 
@@ -292,3 +299,100 @@ class TestNotesIncludeReferenceData:
         ).fetchone())
         # World avg is always present
         assert "World avg" in card["notes"]
+
+
+# ---------------------------------------------------------------------------
+# TestDescStatsPrefix
+# ---------------------------------------------------------------------------
+
+class TestDescStatsPrefix:
+    def test_urban_prefix(self):
+        assert _desc_stats_prefix_for_deck("urban_areas") == "urban_"
+
+    def test_standard_prefix(self):
+        assert _desc_stats_prefix_for_deck("development") == ""
+        assert _desc_stats_prefix_for_deck("finance") == ""
+
+
+# ---------------------------------------------------------------------------
+# TestImportDescStats
+# ---------------------------------------------------------------------------
+
+class TestImportDescStats:
+    def test_creates_cards_from_real_data(self):
+        """Import from the actual descriptive_stats directory."""
+        conn = _make_conn()
+        n = import_desc_stats(conn)
+        # 40 desc stats files × 3 stats each = 120 cards
+        assert n == 120
+
+        # Check a specific card exists
+        row = conn.execute(
+            "SELECT * FROM cards WHERE indicator_id = 'gdp_pc_ppp__mean'"
+        ).fetchone()
+        assert row is not None
+        card = dict(row)
+        assert card["deck"] == "descriptive_stats"
+        assert "mean" in card["question"]
+        assert "GDP per capita" in card["question"]
+        assert card["indicator_std"] is not None
+
+    def test_median_card_exists(self):
+        conn = _make_conn()
+        import_desc_stats(conn)
+        row = conn.execute(
+            "SELECT * FROM cards WHERE indicator_id = 'gdp_pc_ppp__median'"
+        ).fetchone()
+        assert row is not None
+        assert "median" in dict(row)["question"]
+
+    def test_sd_card_exists(self):
+        conn = _make_conn()
+        import_desc_stats(conn)
+        row = conn.execute(
+            "SELECT * FROM cards WHERE indicator_id = 'gdp_pc_ppp__standard_deviation'"
+        ).fetchone()
+        assert row is not None
+        assert "standard deviation" in dict(row)["question"]
+
+    def test_no_min_max_cards(self):
+        """min and max should NOT be imported."""
+        conn = _make_conn()
+        import_desc_stats(conn)
+        for suffix in ["min", "max", "minimum", "maximum"]:
+            row = conn.execute(
+                f"SELECT * FROM cards WHERE indicator_id LIKE '%__{suffix}'"
+            ).fetchone()
+            assert row is None
+
+    def test_idempotent(self):
+        conn = _make_conn()
+        import_desc_stats(conn)
+        n2 = import_desc_stats(conn)
+        assert n2 == 120
+        total = conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
+        assert total == 120
+
+
+# ---------------------------------------------------------------------------
+# TestImportAll
+# ---------------------------------------------------------------------------
+
+class TestImportAll:
+    def test_import_all_returns_all_decks(self):
+        conn = _make_conn()
+        results = import_all(conn)
+        assert "development" in results
+        assert "tech_adoption" in results
+        assert "conflict_security" in results
+        assert "finance" in results
+        assert "urban_areas" in results
+        assert "descriptive_stats" in results
+        assert all(n > 0 for n in results.values())
+
+    def test_import_all_total_cards(self):
+        conn = _make_conn()
+        results = import_all(conn)
+        total = conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
+        assert total == sum(results.values())
+        assert total > 500  # sanity check — should be well over 1000
