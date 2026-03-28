@@ -29,10 +29,10 @@ uv run review --difficulty-modifier  # enable outlier difficulty bonus
 # Anki export (sharing/backup)
 uv run build-deck <deck_key>         # generate .apkg from CSVs
 
-uv run pytest                        # 194 tests
+uv run pytest                        # 197 tests
 ```
 
-Available deck keys: `development`, `tech_adoption`, `conflict_security`, `finance`, `urban_areas`, `descriptive_stats`
+Available deck keys: `development`, `tech_adoption`, `conflict_security`, `finance`, `education`, `governance`, `urban_areas`, `descriptive_stats`
 
 ## Architecture
 
@@ -75,7 +75,8 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 2. Each indicator needs: id, name, category, unit_label, wb_code, decimals, unit_prefix, time_invariant, current_only, has_regional_aggregates. Optional: `scale_factor` (int, default 1) — divides raw API values at build time for large absolute values (e.g., `1_000_000_000` for billions)
 3. Create `data/<new_deck>/.gitkeep`
 4. Run `uv run fetch-data <new_deck>` then `uv run srs-import <new_deck>` (and optionally `uv run build-deck <new_deck>` for Anki export)
-5. New decks are automatically picked up by `srs-import --all`
+5. Add the deck key to `WB_SOURCE_DECKS` in `fetch_desc_stats.py` (for descriptive stats generation)
+6. New decks are automatically picked up by `srs-import --all`
 
 ## Key Constraints
 

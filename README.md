@@ -1,27 +1,27 @@
 # Knowledge Base
 
-Programmatic generation of [Anki with Uncertainty](https://github.com/Sage-Future/anki-with-uncertainty) flashcard decks for calibration training on real-world numerical quantities. Instead of recalling exact answers, users enter confidence intervals — building calibrated order-of-magnitude intuitions.
+Calibration training system for building base-rate knowledge of socioeconomic, financial, and development indicators. The primary interface is a TUI-based spaced repetition app where users estimate 95% confidence intervals or point predictions for real-world quantities — building calibrated order-of-magnitude intuitions relevant to GJOpen/Metaculus-style forecasting.
 
-## Current Decks
+An [Anki with Uncertainty](https://github.com/Sage-Future/anki-with-uncertainty) export pipeline is maintained for sharing and backup.
 
-### Global Development Indicators
+## Decks
 
-**1,082 cards** covering 14 indicators across 47 entities (7 world regions, 15 major economies, 25 development-relevant countries) and 3 time periods (~1960, ~1990, current).
+Eight decks spanning ~50 indicators across 47 countries and 50 major cities.
+
+### Global Development
+
+13 indicators across 47 entities (7 world regions, 15 major economies, 25 development-relevant countries) and 3 time periods (~1960, ~1990, current).
 
 | Category | Indicators |
 |----------|-----------|
 | Development | GDP per capita (PPP), poverty headcount, Gini coefficient, trade/GDP |
 | Health | Life expectancy, under-5 mortality, maternal mortality, fertility rate |
 | Energy | CO2 per capita, renewable electricity share, energy intensity |
-| Geography | Population, land area, major city populations |
-
-**Data sources:** World Bank WDI (API), UN World Urbanization Prospects 2025.
-
-**Time periods:** Post-WWII baseline (~1960), end of Cold War (~1990), and current — chosen to bracket distinct development regimes and build intuitions about rates of change.
+| Geography | Population, land area |
 
 ### Technology Adoption
 
-**738 cards** covering 6 indicators across the same 47 entities and 4 time periods (1990, 2000, 2010, current).
+6 indicators across 47 entities and 4 time periods (1990, 2000, 2010, current).
 
 | Indicator | Unit |
 |-----------|------|
@@ -32,97 +32,160 @@ Programmatic generation of [Anki with Uncertainty](https://github.com/Sage-Futur
 | High-technology exports | % of manufactured exports |
 | Electricity access | % of population |
 
-**Data source:** World Bank WDI (API).
-
-**Time periods:** Decade intervals from 1990 to present, capturing the internet boom and mobile revolution.
-
 ### Conflict & Security
 
-**~450–600 cards** covering 7 indicators across 47 entities and 3 time periods (~1960, ~1990, current).
+7 indicators across 47 entities and 3 time periods (~1960, ~1990, current).
 
 | Category | Indicators |
 |----------|-----------|
 | Military | Military expenditure (% of GDP), military expenditure (USD), armed forces personnel, arms imports |
 | Security | Intentional homicides, refugees by country of origin, refugees by country of asylum |
 
-**Data source:** World Bank WDI (API).
-
-**Time periods:** Cold War baseline (~1960), end of Cold War (~1990), and current — bracketing the Cold War, post-Cold War drawdown, and present-day security landscape.
-
 ### Finance & Markets
 
-**~550–700 cards** covering 8 indicators across 47 entities and 3 time periods (~1960, ~1990, current).
+8 indicators across 47 entities and 3 time periods (~1960, ~1990, current).
 
 | Category | Indicators |
 |----------|-----------|
 | Macro | Inflation (CPI), current account balance, total reserves including gold, real interest rate |
 | Financial System | Market capitalization, stocks traded, domestic credit to private sector, personal remittances received |
 
-**Data source:** World Bank WDI (API).
+### Education
 
-**Time periods:** Bretton Woods era baseline (~1960), post-Cold War financial globalization (~1990), and current — tracking the evolution of global financial systems.
+4 indicators across 47 entities and 2 time periods (~1990, current).
+
+| Indicator | Unit |
+|-----------|------|
+| Adult literacy rate | % of people ages 15+ |
+| Secondary school enrollment | % gross |
+| Tertiary school enrollment | % gross |
+| Government education expenditure | % of GDP |
+
+### Governance
+
+6 Worldwide Governance Indicators across 40 country entities and 2 time periods (~2000, current). No regional aggregates.
+
+| Indicator | WB Code |
+|-----------|---------|
+| Government effectiveness | GE.EST |
+| Control of corruption | CC.EST |
+| Rule of law | RL.EST |
+| Regulatory quality | RQ.EST |
+| Voice and accountability | VA.EST |
+| Political stability | PV.EST |
+
+All indicators use a standardized index scale (-2.5 to +2.5).
+
+### Urban Areas
+
+6 indicators for 50 major cities (by 2025 population) plus income-group aggregates, across 5 time periods (1990, 2000, 2010, 2020, 2025).
+
+| Category | Indicators |
+|----------|-----------|
+| Demographics | Population |
+| Emissions | CO2 per capita, PM2.5 concentration |
+| Socioeconomic | Life expectancy, HDI |
+| Urban Form | Built-up area per capita |
+
+**Data source:** GHS Urban Centre Database (R2024A).
+
+### Descriptive Statistics
+
+Cross-cutting deck with distribution summary cards (mean, median, SD, min, max with entities) for each indicator across all source decks. Uses Enhanced Cloze note type.
 
 ---
 
-Each card includes reference-class context in the notes field (world average + regional average) to support Fermi-style reasoning.
+**Data sources:** World Bank WDI (API) for the four thematic decks, GHS-UCDB for urban areas. Each card includes reference-class context (world average + regional average) to support Fermi-style reasoning.
+
+## SRS Review System
+
+The primary interface is a Textual TUI with score-driven spaced repetition scheduling.
+
+- **Scoring:** Cobb-Douglas geometric mean of accuracy and precision, with a coverage gate (0.2x penalty when the true value falls outside the stated interval). Point predictions use discrete thresholds.
+- **Scheduling:** Simplified FSRS model — good scores lower the desired retention target, producing longer review intervals. Two consecutive successes required for learning-to-review promotion.
+- **Statistics:** Brier score, calibration rate, score distribution histograms, point prediction hit rates — viewable per deck or per indicator.
 
 ## Architecture
 
-Two-stage pipeline with a curated CSV intermediary, supporting multiple decks via a `DECKS` registry in `config.py`:
+Three-stage pipeline: `fetch` → CSVs → `srs-import` → SQLite → `review` TUI
 
 ```
-fetch-data <deck>  →  data/<deck>/*.csv  →  build-deck <deck>  →  *.apkg
-(World Bank API)      (one per indicator)    (genanki)            (import to Anki)
+fetch-data / fetch-urban-data / fetch-desc-stats → data/{deck}/*.csv
+    ↓                                                    ↓
+srs-import → data/srs.db → review TUI            build-deck → .apkg
 ```
 
-- **Stage 1** (`uv run fetch-data <deck>`): Downloads from the World Bank API, selects the best data point per entity/era, writes one CSV per indicator.
-- **Stage 2** (`uv run build-deck <deck>`): Reads CSVs, generates question text with explicit units, computes reference-class averages, assigns tags, and produces the `.apkg` file.
-
-The CSV intermediary makes manual corrections and additions straightforward — edit a CSV, re-run `build-deck`.
+The CSV intermediary makes manual corrections straightforward — edit a CSV, re-run `srs-import` or `build-deck`.
 
 ## Setup
 
 ```bash
-uv sync                          # install dependencies
-uv run fetch-data development    # download data → data/development/*.csv
-uv run fetch-data tech_adoption  # download data → data/tech_adoption/*.csv
-uv run build-deck development    # generate knowledge_base.apkg
-uv run build-deck tech_adoption  # generate knowledge_base_tech_adoption.apkg
-uv run fetch-data conflict_security  # download data → data/conflict_security/*.csv
-uv run build-deck conflict_security  # generate knowledge_base_conflict_security.apkg
-uv run fetch-data finance           # download data → data/finance/*.csv
-uv run build-deck finance           # generate knowledge_base_finance.apkg
-uv run pytest                    # run tests (25 tests)
+uv sync                              # install dependencies
+
+# Fetch data
+uv run fetch-data development        # World Bank → data/development/*.csv
+uv run fetch-data tech_adoption
+uv run fetch-data conflict_security
+uv run fetch-data finance
+uv run fetch-data education
+uv run fetch-data governance
+uv run fetch-urban-data              # GHS-UCDB → data/urban_areas/*.csv
+uv run fetch-desc-stats              # compute stats → data/descriptive_stats/*.csv
+
+# SRS review system
+uv run srs-import --all              # import all decks → data/srs.db
+uv run review                        # launch TUI review session
+uv run review --stats                # stats screen only
+
+# Anki export (sharing/backup)
+uv run build-deck development        # → knowledge_base.apkg
+uv run build-deck tech_adoption      # → knowledge_base_tech_adoption.apkg
+
+uv run pytest                        # 197 tests
 ```
 
-Requires the [Anki with Uncertainty](https://www.quantifiedintuitions.org/anki-with-uncertainty) add-on (code `694813595`) installed in Anki.
+Anki export requires the [Anki with Uncertainty](https://www.quantifiedintuitions.org/anki-with-uncertainty) add-on (code `694813595`).
 
 ## Tag Schema
 
-All cards in each deck use interleaved scheduling. Filtering via tags:
+Cards are tagged for filtering:
 
-- `category::development`, `category::health`, `category::energy`, `category::geography`, `category::technology`, `category::military`, `category::security`, `category::macro`, `category::financial_system`
+- `category::development`, `category::health`, `category::energy`, `category::geography`, `category::technology`, `category::military`, `category::security`, `category::macro`, `category::financial_system`, `category::education`, `category::governance`
 - `indicator::gdp_pc_ppp`, `indicator::internet_users`, etc.
 - `entity::india`, `entity::sub_saharan_africa`, etc.
 - `entity_type::region`, `entity_type::major`, `entity_type::long_tail`
 - `era::1960`, `era::1990`, `era::2000`, `era::2010`, `era::current`
+- `source_deck::development`, etc. (descriptive stats cards only)
 
 ## Project Structure
 
 ```
 src/knowledge_base/
-    config.py        # DECKS registry, entity lists, indicator metadata, WB API codes
-    wb_api.py        # World Bank API client
-    fetch_data.py    # Stage 1: download & clean → data/<deck>/*.csv
-    build_deck.py    # Stage 2: data/<deck>/*.csv → .apkg
+    config.py            # DECKS registry, entity lists, indicator metadata
+    card_gen.py          # Question/answer/tag generation (shared by build_deck + srs)
+    wb_api.py            # World Bank API client
+    ghsl.py              # GHS-UCDB GeoPackage reader
+    fetch_data.py        # World Bank → data/<deck>/*.csv
+    fetch_urban_data.py  # GHS-UCDB → data/urban_areas/*.csv
+    fetch_desc_stats.py  # Compute descriptive statistics → data/descriptive_stats/*.csv
+    desc_stats.py        # Statistics computation helper
+    build_deck.py        # CSV → .apkg (Anki export)
+    srs/
+        scoring.py       # Cobb-Douglas interval scoring, point prediction scoring
+        scheduler.py     # Simplified FSRS scheduling (DSR model)
+        db.py            # SQLite schema, CRUD, migrations
+        importer.py      # CSV → SQLite card import
+        stats.py         # Calibration metrics and score distributions
+        tui.py           # Textual TUI for review sessions
 data/
-    development/     # Curated CSVs for development deck (gitignored)
-    tech_adoption/   # Curated CSVs for tech adoption deck (gitignored)
-    conflict_security/ # Curated CSVs for conflict & security deck (gitignored)
-    finance/           # Curated CSVs for finance deck (gitignored)
-resources/           # Bundled data (UN WUP cities CSV, example deck)
-tests/               # 25 tests
-docs/superpowers/
-    specs/           # Design specs
-    plans/           # Implementation plans
+    development/         # Curated CSVs (gitignored, regenerated by fetch commands)
+    tech_adoption/
+    conflict_security/
+    finance/
+    education/
+    governance/
+    urban_areas/
+    descriptive_stats/
+    srs.db               # Personal review state (gitignored)
+tests/                   # 197 tests
 ```
