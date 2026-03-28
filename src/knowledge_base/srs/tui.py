@@ -368,13 +368,15 @@ class ReviewApp(App):
         if minutes < 60:
             interval_str = f"{minutes:.0f} min"
         elif interval < 1.0:
-            interval_str = f"{interval * 24:.0f} hours"
+            hours = round(interval * 24)
+            interval_str = f"{hours} hour{'s' if hours != 1 else ''}"
         elif interval < 1.5:
             interval_str = "1 day"
         else:
-            interval_str = f"{interval:.0f} days"
+            days = round(interval)
+            interval_str = f"{days} day{'s' if days != 1 else ''}"
         if interval < INTRA_SESSION_THRESHOLD:
-            interval_str += " [red](again this session)[/]"
+            interval_str += " [red](re-queued)[/]"
         display_lines.append(f"[bold]Next review:[/] {interval_str}")
 
         if card.get("notes"):
