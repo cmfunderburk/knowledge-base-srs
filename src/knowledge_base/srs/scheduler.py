@@ -16,7 +16,7 @@ MIN_DIFFICULTY = 0.05
 MAX_DIFFICULTY = 1.0
 LAPSE_FACTOR = 0.3
 MIN_STABILITY = 0.1
-MIN_INTERVAL = 1.0
+MIN_INTERVAL = 0.01  # days (~15 minutes); allows sub-day intervals for lapsed cards
 INITIAL_STABILITY = 0.5
 INTRA_SESSION_THRESHOLD = 0.05  # days (~1.2 hours); below this, re-queue in-session
 

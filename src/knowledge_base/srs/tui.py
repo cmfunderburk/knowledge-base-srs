@@ -366,6 +366,9 @@ class ReviewApp(App):
         display_lines.append("")
         if interval < INTRA_SESSION_THRESHOLD:
             display_lines.append("[bold]Next review:[/] [red]again this session[/]")
+        elif interval < 1.0:
+            hours = interval * 24
+            display_lines.append(f"[bold]Next review:[/] {hours:.0f} hours")
         elif interval < 1.5:
             display_lines.append("[bold]Next review:[/] 1 day")
         else:
