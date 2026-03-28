@@ -6,7 +6,6 @@ cards and review_log tables used by the spaced-repetition scheduler.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from pathlib import Path
 
@@ -14,7 +13,7 @@ from pathlib import Path
 # Schema
 # ---------------------------------------------------------------------------
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -40,12 +39,10 @@ CREATE TABLE IF NOT EXISTS cards (
     scale_factor            INTEGER NOT NULL DEFAULT 1,
     decimals                INTEGER NOT NULL DEFAULT 0,
     difficulty              REAL    NOT NULL DEFAULT 0.3,
-    stability               REAL    NOT NULL DEFAULT 1.0,
+    stability               REAL    NOT NULL DEFAULT 0.5,
     last_review             TEXT,
     due                     TEXT,
     reps                    INTEGER NOT NULL DEFAULT 0,
-    consecutive_successes   INTEGER NOT NULL DEFAULT 0,
-    state                   TEXT    NOT NULL DEFAULT 'new',
     UNIQUE (indicator_id, entity, era)
 );
 """
@@ -68,7 +65,7 @@ CREATE TABLE IF NOT EXISTS review_log (
 """
 
 _DDL_INDEXES = """
-CREATE INDEX IF NOT EXISTS idx_cards_due           ON cards (due, state);
+CREATE INDEX IF NOT EXISTS idx_cards_due           ON cards (due, reps);
 CREATE INDEX IF NOT EXISTS idx_cards_deck          ON cards (deck);
 CREATE INDEX IF NOT EXISTS idx_review_log_card     ON review_log (card_id);
 CREATE INDEX IF NOT EXISTS idx_review_log_timestamp ON review_log (timestamp);
@@ -84,8 +81,6 @@ _SCHEDULING_FIELDS = frozenset({
     "last_review",
     "due",
     "reps",
-    "consecutive_successes",
-    "state",
 })
 
 # Content fields updated on upsert (scheduling state is preserved)
@@ -134,12 +129,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """Check schema version and apply pending migrations."""
     version = get_schema_version(conn)
 
-    if version < 1:
-        _apply_migration_v1(conn)
+    if version == 0:
+        _apply_fresh(conn)
+
+    if get_schema_version(conn) == 1:
+        _apply_migration_v2(conn)
 
 
-def _apply_migration_v1(conn: sqlite3.Connection) -> None:
-    """Create all v1 tables, indexes, and record schema version 1."""
+def _apply_fresh(conn: sqlite3.Connection) -> None:
+    """Create all v2 tables, indexes, and record schema version 2."""
     with conn:
         conn.execute(_DDL_SCHEMA_VERSION)
         conn.execute(_DDL_CARDS)
@@ -149,11 +147,84 @@ def _apply_migration_v1(conn: sqlite3.Connection) -> None:
             if stmt:
                 conn.execute(stmt)
         # Record version — only one row ever lives in this table.
-        version = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0]
-        if version == 0:
-            conn.execute("INSERT INTO schema_version (version) VALUES (1)")
+        version_count = conn.execute(
+            "SELECT COUNT(*) FROM schema_version"
+        ).fetchone()[0]
+        if version_count == 0:
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)",
+                (CURRENT_SCHEMA_VERSION,),
+            )
         else:
-            conn.execute("UPDATE schema_version SET version = 1")
+            conn.execute(
+                "UPDATE schema_version SET version = ?",
+                (CURRENT_SCHEMA_VERSION,),
+            )
+
+
+def _apply_migration_v2(conn: sqlite3.Connection) -> None:
+    """Upgrade a v1 database to v2: remove state/consecutive_successes, floor stability."""
+    # Temporarily disable FK enforcement so we can DROP/RENAME the cards table
+    # while review_log still references it.
+    conn.execute("PRAGMA foreign_keys=OFF;")
+    try:
+        with conn:
+            # Create the new cards table with v2 schema
+            conn.execute("""
+                CREATE TABLE cards_v2 (
+                    card_id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                    deck                    TEXT    NOT NULL,
+                    indicator_id            TEXT    NOT NULL,
+                    entity                  TEXT    NOT NULL,
+                    era                     TEXT    NOT NULL,
+                    question                TEXT    NOT NULL,
+                    answer                  REAL    NOT NULL,
+                    unit_prefix             TEXT    NOT NULL DEFAULT '',
+                    unit_label              TEXT    NOT NULL DEFAULT '',
+                    notes                   TEXT    NOT NULL DEFAULT '',
+                    tags                    TEXT    NOT NULL DEFAULT '[]',
+                    indicator_mean          REAL,
+                    indicator_std           REAL,
+                    scale_factor            INTEGER NOT NULL DEFAULT 1,
+                    decimals                INTEGER NOT NULL DEFAULT 0,
+                    difficulty              REAL    NOT NULL DEFAULT 0.3,
+                    stability               REAL    NOT NULL DEFAULT 0.5,
+                    last_review             TEXT,
+                    due                     TEXT,
+                    reps                    INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE (indicator_id, entity, era)
+                )
+            """)
+
+            # Copy data, flooring low stability values to 0.5
+            conn.execute("""
+                INSERT INTO cards_v2
+                    (card_id, deck, indicator_id, entity, era, question, answer,
+                     unit_prefix, unit_label, notes, tags, indicator_mean,
+                     indicator_std, scale_factor, decimals, difficulty,
+                     stability, last_review, due, reps)
+                SELECT
+                    card_id, deck, indicator_id, entity, era, question, answer,
+                    unit_prefix, unit_label, notes, tags, indicator_mean,
+                    indicator_std, scale_factor, decimals, difficulty,
+                    MAX(stability, 0.5), last_review, due, reps
+                FROM cards
+            """)
+
+            conn.execute("DROP TABLE cards")
+            conn.execute("ALTER TABLE cards_v2 RENAME TO cards")
+
+            # Recreate indexes for v2
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cards_due  ON cards (due, reps)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cards_deck ON cards (deck)"
+            )
+
+            conn.execute("UPDATE schema_version SET version = 2")
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON;")
 
 
 def get_schema_version(conn: sqlite3.Connection) -> int:
@@ -197,8 +268,7 @@ def upsert_card(conn: sqlite3.Connection, card: dict) -> int:
     """Insert or update a card identified by ``(indicator_id, entity, era)``.
 
     On conflict, content fields are updated but scheduling state
-    (difficulty, stability, last_review, due, reps, consecutive_successes,
-    state) is preserved.
+    (difficulty, stability, last_review, due, reps) is preserved.
 
     Returns
     -------
@@ -213,7 +283,6 @@ def upsert_card(conn: sqlite3.Connection, card: dict) -> int:
 
     # Build the DO UPDATE SET clause — update only content fields present in card
     update_parts = []
-    update_values = []
     for field in _CONTENT_FIELDS:
         if field in card:
             update_parts.append(f"{field} = excluded.{field}")
@@ -257,7 +326,8 @@ def update_card_scheduling(
     ----------
     fields:
         Mapping of column name → new value. Only recognised scheduling columns
-        are accepted; unknown keys are silently ignored.
+        are accepted; unknown keys and removed columns (state,
+        consecutive_successes) are silently ignored.
     """
     allowed = {k: v for k, v in fields.items() if k in _SCHEDULING_FIELDS}
     if not allowed:
@@ -277,13 +347,11 @@ def get_due_cards(
     """Return cards that are due for review, ordered by priority.
 
     Priority ordering:
-        1. Learning step-1: ``consecutive_successes = 0`` and state = 'learning'
-        2. Overdue review: ``due <= as_of`` and state = 'review'
-        3. Learning step-2: ``consecutive_successes >= 1`` and state = 'learning'
-        4. New cards (state = 'new')
+        1. Overdue cards: ``reps > 0`` and ``due <= as_of``, sorted by due ASC
+           (oldest overdue first)
+        2. New cards: ``reps = 0``, returned in random order
 
-    Cards with state not in ('new', 'learning', 'review') that are not yet
-    due are excluded, as are review cards whose ``due`` is in the future.
+    Cards with ``reps > 0`` whose ``due`` is in the future are excluded.
 
     Parameters
     ----------
@@ -294,7 +362,7 @@ def get_due_cards(
     limit:
         Maximum number of cards to return.
     """
-    params: list = [as_of, as_of]
+    params: list = [as_of]
     deck_clause = ""
     if deck is not None:
         deck_clause = "AND deck = ?"
@@ -305,31 +373,16 @@ def get_due_cards(
         limit_clause = f"LIMIT {int(limit)}"
 
     sql = f"""
-        SELECT *,
-            CASE
-                WHEN state = 'learning' AND consecutive_successes = 0 THEN 1
-                WHEN state = 'review'   AND due <= ?                  THEN 2
-                WHEN state = 'learning' AND consecutive_successes >= 1
-                     AND (due IS NULL OR due <= ?)                    THEN 3
-                WHEN state = 'new'                                     THEN 4
-                ELSE 99
-            END AS priority
+        SELECT *
         FROM cards
-        WHERE (
-              state = 'new'
-              OR (state = 'learning' AND consecutive_successes = 0)
-              OR (state = 'learning' AND consecutive_successes >= 1
-                  AND (due IS NULL OR due <= ?))
-              OR (state = 'review' AND due <= ?)
-          )
+        WHERE (reps = 0 OR (reps > 0 AND due <= ?))
           {deck_clause}
-        ORDER BY priority ASC
+        ORDER BY
+            CASE WHEN reps > 0 THEN 0 ELSE 1 END,
+            CASE WHEN reps > 0 THEN due END ASC,
+            CASE WHEN reps = 0 THEN RANDOM() END
         {limit_clause}
     """
-    if deck is not None:
-        params = [as_of, as_of, as_of, as_of, deck]
-    else:
-        params = [as_of, as_of, as_of, as_of]
 
     rows = conn.execute(sql, params).fetchall()
     return [dict(row) for row in rows]
