@@ -214,14 +214,14 @@ The score shifts the target retention per-review:
 
 ```
 base_retention = 0.90
-retention = base_retention + 0.05 * (score - 0.5)   # range: [0.85, 0.925]
+retention = base_retention + 0.05 * (score - 0.5)   # range: [0.875, 0.925]
 ```
 
 - Score 1.0 → 92.5% target → longer interval (system trusts you)
 - Score 0.5 → 90% target → baseline interval
 - Score 0.0 → 85% target → shorter interval
 
-The range is deliberately asymmetric around baseline: -5% downside vs. +2.5% upside. Poor calibration is penalized more aggressively than good calibration is rewarded — the system is conservative about extending intervals.
+The range is deliberately asymmetric around baseline: -2.5% downside vs. +2.5% upside. The asymmetry is mild; the conservative bias comes from the scoring algorithm itself (Cobb-Douglas + coverage gate) producing lower scores more readily than high ones.
 
 ### Interval Computation
 
