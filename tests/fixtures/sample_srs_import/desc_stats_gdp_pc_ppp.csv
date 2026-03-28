@@ -1,0 +1,2 @@
+indicator_id,indicator_name,category,source_deck,unit_label,unit_prefix,decimals,scale_factor,year,n,mean,median,std,min_value,min_entity,max_value,max_entity
+gdp_pc_ppp,GDP per capita (PPP),development,development,in 2021 international dollars,$,0,1,2024,199,27833.0,18068.5,27142.0,1051.3,Burundi,132569.5,Singapore
