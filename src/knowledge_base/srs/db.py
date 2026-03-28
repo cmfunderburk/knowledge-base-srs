@@ -309,27 +309,27 @@ def get_due_cards(
             CASE
                 WHEN state = 'learning' AND consecutive_successes = 0 THEN 1
                 WHEN state = 'review'   AND due <= ?                  THEN 2
-                WHEN state = 'learning' AND consecutive_successes >= 1 THEN 3
+                WHEN state = 'learning' AND consecutive_successes >= 1
+                     AND (due IS NULL OR due <= ?)                    THEN 3
                 WHEN state = 'new'                                     THEN 4
                 ELSE 99
             END AS priority
         FROM cards
-        WHERE priority < 99
-          {deck_clause}
-          AND (
+        WHERE (
               state = 'new'
-              OR state = 'learning'
+              OR (state = 'learning' AND consecutive_successes = 0)
+              OR (state = 'learning' AND consecutive_successes >= 1
+                  AND (due IS NULL OR due <= ?))
               OR (state = 'review' AND due <= ?)
           )
+          {deck_clause}
         ORDER BY priority ASC
         {limit_clause}
     """
-    # Reorder params: first ? is for CASE WHEN, second ? is for WHERE due <=
-    # deck_clause ? comes between them if present
     if deck is not None:
-        params = [as_of, deck, as_of]
+        params = [as_of, as_of, as_of, as_of, deck]
     else:
-        params = [as_of, as_of]
+        params = [as_of, as_of, as_of, as_of]
 
     rows = conn.execute(sql, params).fetchall()
     return [dict(row) for row in rows]
