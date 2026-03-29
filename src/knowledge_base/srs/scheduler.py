@@ -109,3 +109,22 @@ def compute_interval(stability: float) -> float:
     With R_d = 0.9, this simplifies to I = S.
     """
     return (stability / FACTOR) * (DESIRED_RETENTION ** (1 / DECAY) - 1)
+
+
+def initial_stability(score: float) -> float:
+    """Return initial stability for a first review based on score.
+
+    S_0(s) = W_BASE * e^(W_SCALE * s)
+    """
+    return W_BASE * math.exp(W_SCALE * score)
+
+
+def initial_difficulty(score: float) -> float:
+    """Return initial difficulty for a first review based on score.
+
+    D_0(s) = W4 - e^(W5 * s * 3) + 1
+
+    Clamped to [MIN_DIFFICULTY, MAX_DIFFICULTY].
+    """
+    d = W4 - math.exp(W5 * score * 3) + 1
+    return max(MIN_DIFFICULTY, min(MAX_DIFFICULTY, d))

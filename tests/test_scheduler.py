@@ -64,3 +64,66 @@ class TestComputeInterval:
         """FACTOR should satisfy 0.9^(1/DECAY) - 1."""
         expected_factor = 0.9 ** (1 / DECAY) - 1
         assert FACTOR == pytest.approx(expected_factor)
+
+
+from knowledge_base.srs.scheduler import (
+    W_BASE,
+    W_SCALE,
+    initial_stability,
+    initial_difficulty,
+    MIN_DIFFICULTY,
+    MAX_DIFFICULTY,
+)
+
+
+class TestInitialStability:
+    def test_zero_score(self):
+        """score=0 -> S_0 = W_BASE (~0.0067 days, ~10 min)."""
+        s = initial_stability(0.0)
+        assert s == pytest.approx(W_BASE)
+        assert s * 24 * 60 == pytest.approx(9.6, abs=1.0)  # ~10 min
+
+    def test_perfect_score(self):
+        """score=1.0 -> S_0 ~ 6.9 days."""
+        s = initial_stability(1.0)
+        expected = W_BASE * math.exp(W_SCALE * 1.0)
+        assert s == pytest.approx(expected)
+        assert s > 5.0  # at least 5 days
+
+    def test_mid_score(self):
+        """score=0.5 -> S_0 between zero and perfect."""
+        s = initial_stability(0.5)
+        assert s > initial_stability(0.0)
+        assert s < initial_stability(1.0)
+
+    def test_monotonically_increasing(self):
+        """Higher score -> higher initial stability."""
+        scores = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+        stabilities = [initial_stability(s) for s in scores]
+        for i in range(len(stabilities) - 1):
+            assert stabilities[i] < stabilities[i + 1]
+
+
+class TestInitialDifficulty:
+    def test_zero_score_hardest(self):
+        """score=0 -> D_0 = W4 (highest difficulty for worst performance)."""
+        d = initial_difficulty(0.0)
+        assert d == pytest.approx(7.0)
+
+    def test_perfect_score_easier(self):
+        """score=1.0 -> D_0 < D_0(0)."""
+        d = initial_difficulty(1.0)
+        assert d < initial_difficulty(0.0)
+
+    def test_clamped_to_bounds(self):
+        """Result is always in [MIN_DIFFICULTY, MAX_DIFFICULTY]."""
+        for s in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            d = initial_difficulty(s)
+            assert MIN_DIFFICULTY <= d <= MAX_DIFFICULTY
+
+    def test_monotonically_decreasing(self):
+        """Higher score -> lower initial difficulty."""
+        scores = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+        difficulties = [initial_difficulty(s) for s in scores]
+        for i in range(len(difficulties) - 1):
+            assert difficulties[i] > difficulties[i + 1]
