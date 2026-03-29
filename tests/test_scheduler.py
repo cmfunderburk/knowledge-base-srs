@@ -134,6 +134,10 @@ from knowledge_base.srs.scheduler import (
     ANCHOR,
     update_stability,
 )
+from knowledge_base.srs.scheduler import (
+    update_stability_short_term,
+    update_difficulty,
+)
 
 
 class TestUpdateStability:
@@ -210,3 +214,69 @@ class TestUpdateStability:
         for score in [0.0, 0.2, 0.5, 0.8, 1.0]:
             s = update_stability(10.0, 5.0, 0.9, score)
             assert s > 0
+
+
+class TestUpdateStabilityShortTerm:
+    def test_passing_score_never_decreases(self):
+        """Passing score (>= BLEND_CENTER) should not decrease stability."""
+        s_new = update_stability_short_term(1.0, 0.8)
+        assert s_new >= 1.0
+
+    def test_high_score_increases(self):
+        """High score on same-day review increases stability."""
+        s_new = update_stability_short_term(0.01, 0.9)
+        assert s_new > 0.01
+
+    def test_convergence_limits_growth(self):
+        """Higher starting stability -> smaller proportional gain (convergence)."""
+        ratio_low = update_stability_short_term(0.1, 0.9) / 0.1
+        ratio_high = update_stability_short_term(10.0, 0.9) / 10.0
+        assert ratio_low > ratio_high
+
+    def test_low_score_can_decrease(self):
+        """Score well below BLEND_CENTER can decrease stability."""
+        s_new = update_stability_short_term(1.0, 0.0)
+        assert s_new < 1.0
+
+
+class TestUpdateDifficulty:
+    def test_at_anchor_unchanged(self):
+        """score == ANCHOR -> difficulty approximately unchanged."""
+        d_new = update_difficulty(5.0, ANCHOR)
+        assert d_new == pytest.approx(5.0, abs=0.1)  # mean reversion causes tiny shift
+
+    def test_high_score_lowers(self):
+        """score > ANCHOR -> difficulty decreases."""
+        d_new = update_difficulty(5.0, 1.0)
+        assert d_new < 5.0
+
+    def test_low_score_raises(self):
+        """score < ANCHOR -> difficulty increases."""
+        d_new = update_difficulty(5.0, 0.0)
+        assert d_new > 5.0
+
+    def test_clamped_to_bounds(self):
+        """Difficulty stays in [MIN_DIFFICULTY, MAX_DIFFICULTY]."""
+        d_low = update_difficulty(MIN_DIFFICULTY, 1.0)
+        d_high = update_difficulty(MAX_DIFFICULTY, 0.0)
+        assert d_low >= MIN_DIFFICULTY
+        assert d_high <= MAX_DIFFICULTY
+
+    def test_mean_reversion(self):
+        """Extreme difficulty values get pulled back toward neutral."""
+        d_extreme_high = update_difficulty(9.5, ANCHOR)
+        d_extreme_low = update_difficulty(1.5, ANCHOR)
+        # At anchor score, delta_D = 0, so only mean reversion acts
+        # Both should move toward D_0(ANCHOR)
+        d_neutral = initial_difficulty(ANCHOR)
+        assert d_extreme_high < 9.5  # pulled down
+        assert d_extreme_low > 1.5   # pulled up
+        # Both should move toward the neutral value
+        assert abs(d_extreme_high - d_neutral) < abs(9.5 - d_neutral)
+        assert abs(d_extreme_low - d_neutral) < abs(1.5 - d_neutral)
+
+    def test_linear_damping(self):
+        """Difficulty change shrinks as D approaches MAX_DIFFICULTY."""
+        d_change_mid = abs(update_difficulty(5.0, 0.0) - 5.0)
+        d_change_high = abs(update_difficulty(9.0, 0.0) - 9.0)
+        assert d_change_mid > d_change_high

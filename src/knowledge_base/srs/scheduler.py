@@ -187,3 +187,32 @@ def update_stability(
     s_lapse = _lapse_stability(stability, difficulty, retrievability)
     b = _blend(score)
     return b * s_recall + (1 - b) * s_lapse
+
+
+def update_stability_short_term(stability: float, score: float) -> float:
+    """Update stability for same-day (short-term) reviews.
+
+    S_short = S * e^(W17 * (s - ANCHOR + W18)) * S^(-W19)
+
+    For passing scores (s >= BLEND_CENTER), multiplier is floored at 1.0.
+    """
+    multiplier = math.exp(W17 * (score - ANCHOR + W18)) * stability ** (-W19)
+    if score >= BLEND_CENTER:
+        multiplier = max(multiplier, 1.0)
+    return stability * multiplier
+
+
+def update_difficulty(difficulty: float, score: float) -> float:
+    """Update difficulty after a review.
+
+    delta_D = -W6 * (score - ANCHOR)
+    D' = D + delta_D * (10 - D) / 9
+    D_new = W7 * D_0(ANCHOR) + (1 - W7) * D'
+
+    Clamped to [MIN_DIFFICULTY, MAX_DIFFICULTY].
+    """
+    delta_d = -W6 * (score - ANCHOR)
+    d_prime = difficulty + delta_d * (MAX_DIFFICULTY - difficulty) / 9
+    d_anchor = initial_difficulty(ANCHOR)
+    d_new = W7 * d_anchor + (1 - W7) * d_prime
+    return max(MIN_DIFFICULTY, min(MAX_DIFFICULTY, d_new))
