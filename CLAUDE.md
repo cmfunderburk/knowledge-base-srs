@@ -60,7 +60,7 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 
 ### SRS module (`srs/`)
 - `scoring.py` — answer-normalized log-likelihood interval scoring (`S = -z²/2 - ln(CoV)`, logistic transform); punitive point-prediction thresholds
-- `scheduler.py` — simplified FSRS: DSR model with desired-retention modulation. Good scores lower the retention target → longer intervals. No state machine — all cards use FSRS directly
+- `scheduler.py` — continuous FSRS (v6-inspired): power-law forgetting curve, sigmoid recall/lapse blend, 23 tunable parameters. Score in [0,1] maps continuously to intervals via stability updates
 - `db.py` — SQLite schema (cards, review_log, schema_version), CRUD, migrations
 - `importer.py` — CSV → SQLite card population, idempotent upsert preserving scheduling state. Imports interval decks + descriptive stats (mean/median/SD as separate cards)
 - `stats.py` — Brier score, calibration rate, score distribution, point prediction hit rate
@@ -82,13 +82,20 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 
 ### SRS scoring
 - **Answer-normalized log-likelihood**: interval scoring uses `S = -z²/2 - ln(CoV)` transformed via logistic (`center=2.0, scale=1.0`). No `indicator_std` parameter — depends only on interval bounds and true answer.
-- **Retention modulation is inverted**: good score → *lower* desired retention → *longer* interval. The formula `R_d = 0.90 - 0.05*(score - 0.5)` produces range [0.875, 0.925]. This is because `interval = S * ln(R)/ln(0.9)` and lower R yields a larger ratio.
 - **All values stored in display units** (divided by scale_factor). Scoring operates directly on stored values without conversion.
-- **No state machine**: all cards use FSRS directly. New cards start at `INITIAL_STABILITY = 0.5`. No learning/review distinction or consecutive-success promotion.
-- **Aggressive lapse**: `LAPSE_FACTOR = 0.02`, `MIN_STABILITY = 0.01`. A score=0 on a new card gives ~14 min interval (re-queued). Established cards lapse proportionally (30-day card → ~11 hours).
+
+### SRS scheduling (continuous FSRS)
+- **Power-law forgetting curve** (FSRS v6): `R(t,S) = (1 + FACTOR*t/S)^DECAY` where `DECAY=-0.5`. Replaces exponential `R=0.9^(t/S)`.
+- **Continuous score → stability**: no binary lapse/success threshold. A sigmoid blend (`BLEND_CENTER=0.5`, `BLEND_SCALE=0.08`) smoothly interpolates between recall and lapse stability formulas.
+- **Desired retention is constant** (`R_d = 0.9`). Score affects intervals entirely through stability updates, not retention modulation.
+- **Initial stability**: `S_0(s) = W_BASE * e^(W_SCALE * s)` where `W_BASE=0.0067` (~10 min at score=0), `W_SCALE=6.93` (~6.9 days at score=1.0).
+- **Difficulty anchor**: `ANCHOR=0.7`. Scores below 0.7 increase difficulty, above decrease it. Difficulty range [1, 10] with FSRS mean reversion (`W7=0.01`).
+- **Three-branch scheduling in TUI**: first review (`reps=0`) uses `initial_stability`/`initial_difficulty`; same-day (`elapsed<1`) uses short-term formula with v6 convergence; normal uses full recall/lapse blend.
+- **No state machine**: all cards use FSRS directly. No learning/review distinction.
 - **New cards randomized**: `get_due_cards` returns new cards (reps=0) in random order for interleaved practice.
 - **Intra-session repeat**: cards with computed interval < `INTRA_SESSION_THRESHOLD` (0.05 days) are re-queued within the session.
 - **Difficulty modifier** is off by default (`--difficulty-modifier` to enable).
+- **23 tunable parameters** in `scheduler.py` — all documented with role and rationale. See `docs/superpowers/specs/2026-03-29-continuous-fsrs-scheduler-design.md` for full spec.
 
 ### Anki export
 - **Model ID `1677887272395`** must be reused — it's the Interval note type from the add-on
