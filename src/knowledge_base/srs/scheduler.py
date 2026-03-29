@@ -1,24 +1,88 @@
-"""Simplified FSRS (DSR model) scheduler for spaced repetition reviews."""
+"""Continuous FSRS scheduler — FSRS v6-inspired with native continuous score support.
+
+Replaces the simplified DSR model. All formulas accept a continuous score in [0,1]
+instead of FSRS's discrete grades (1-4). See design spec:
+docs/superpowers/specs/2026-03-29-continuous-fsrs-scheduler-design.md
+"""
 
 import math
 
 # ---------------------------------------------------------------------------
-# Constants
+# Forgetting curve (FSRS v6 power-law)
 # ---------------------------------------------------------------------------
 
-GROWTH_FACTOR = 2.0
-BASE_RETENTION = 0.90
-RETENTION_SCALE = 0.05
-SUCCESS_THRESHOLD = 0.4
-DIFFICULTY_RATE = 0.1
-DIFFICULTY_ANCHOR = 0.7
-MIN_DIFFICULTY = 0.05
-MAX_DIFFICULTY = 1.0
-LAPSE_FACTOR = 0.02
-MIN_STABILITY = 0.01
-MIN_INTERVAL = 0.01  # days (~15 minutes); allows sub-day intervals for lapsed cards
-INITIAL_STABILITY = 0.5
-INTRA_SESSION_THRESHOLD = 0.05  # days (~1.2 hours); below this, re-queue in-session
+DECAY = -0.5                              # w[20]: forgetting curve decay (v5-compatible)
+FACTOR = 0.9 ** (1 / DECAY) - 1          # derived so R(S, S) = 0.9
+
+DESIRED_RETENTION = 0.9                   # constant; score acts through stability
+
+# ---------------------------------------------------------------------------
+# Initial stability
+# ---------------------------------------------------------------------------
+
+W_BASE = 0.0067                           # S_0 at score=0 (~10 min)
+W_SCALE = 6.93                            # S_0 growth rate
+
+# ---------------------------------------------------------------------------
+# Initial difficulty
+# ---------------------------------------------------------------------------
+
+W4 = 7.0                                  # base initial difficulty
+W5 = 0.5                                  # initial difficulty curve shape
+
+# ---------------------------------------------------------------------------
+# Difficulty update
+# ---------------------------------------------------------------------------
+
+W6 = 1.5                                  # difficulty update magnitude
+W7 = 0.01                                 # mean reversion weight
+ANCHOR = 0.7                              # difficulty neutral point
+
+# ---------------------------------------------------------------------------
+# Recall stability
+# ---------------------------------------------------------------------------
+
+W8 = 1.5                                  # recall stability gain (log-scale)
+W9 = 0.15                                 # stability diminishing returns exponent
+W10 = 1.0                                 # retrievability effect on recall gain
+W_SF = 2.0                                # score factor scale (continuous hard/easy)
+
+# ---------------------------------------------------------------------------
+# Lapse stability
+# ---------------------------------------------------------------------------
+
+W11 = 1.5                                 # post-lapse stability scaling
+W12 = 0.1                                 # difficulty effect on post-lapse
+W13 = 0.3                                 # pre-lapse S effect on post-lapse
+W14 = 2.0                                 # retrievability effect on post-lapse
+
+# ---------------------------------------------------------------------------
+# Recall/lapse blend
+# ---------------------------------------------------------------------------
+
+BLEND_CENTER = 0.5                        # blend midpoint (50/50 at this score)
+BLEND_SCALE = 0.08                        # blend steepness (smaller = sharper)
+
+# ---------------------------------------------------------------------------
+# Same-day (short-term) stability
+# ---------------------------------------------------------------------------
+
+W17 = 0.5                                 # short-term stability rate
+W18 = 0.1                                 # short-term stability offset
+W19 = 0.07                                # short-term convergence exponent (v6)
+
+# ---------------------------------------------------------------------------
+# Scheduling
+# ---------------------------------------------------------------------------
+
+INTRA_SESSION_THRESHOLD = 0.05            # days (~1.2 hours); re-queue below this
+
+# ---------------------------------------------------------------------------
+# Difficulty bounds
+# ---------------------------------------------------------------------------
+
+MIN_DIFFICULTY = 1.0
+MAX_DIFFICULTY = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -26,59 +90,22 @@ INTRA_SESSION_THRESHOLD = 0.05  # days (~1.2 hours); below this, re-queue in-ses
 # ---------------------------------------------------------------------------
 
 def compute_retrievability(elapsed_days: float, stability: float) -> float:
-    """Return R = 0.9 ^ (elapsed_days / stability).
+    """Return retrievability using FSRS v6 power-law forgetting curve.
+
+    R(t, S) = (1 + FACTOR * t/S) ^ DECAY
 
     Returns 0.0 if stability <= 0.
     """
     if stability <= 0:
         return 0.0
-    return BASE_RETENTION ** (elapsed_days / stability)
+    return (1 + FACTOR * elapsed_days / stability) ** DECAY
 
 
-def compute_desired_retention(score: float) -> float:
-    """Return desired retention based on recent performance score.
-
-    R_d = BASE_RETENTION - RETENTION_SCALE * (score - 0.5)
-
-    Good scores lower the retention target → longer intervals (system trusts you).
-    Bad scores raise it → shorter intervals (demands more practice).
-    Range: [0.875, 0.925]
-    """
-    return BASE_RETENTION - RETENTION_SCALE * (score - 0.5)
-
-
-def compute_interval(stability: float, desired_retention: float) -> float:
+def compute_interval(stability: float) -> float:
     """Return next review interval in days.
 
-    interval = stability * (ln(desired_retention) / ln(0.9))
-    Floored at MIN_INTERVAL (1.0).
-    Returns MIN_INTERVAL if desired_retention <= 0 or >= 1.
+    I(S) = (S / FACTOR) * (R_d^(1/DECAY) - 1)
+
+    With R_d = 0.9, this simplifies to I = S.
     """
-    if desired_retention <= 0 or desired_retention >= 1:
-        return MIN_INTERVAL
-    interval = stability * (math.log(desired_retention) / math.log(BASE_RETENTION))
-    return max(MIN_INTERVAL, interval)
-
-
-def update_difficulty(difficulty: float, score: float) -> float:
-    """Update difficulty after a review.
-
-    d_new = difficulty + DIFFICULTY_RATE * (DIFFICULTY_ANCHOR - score)
-    Clamped to [MIN_DIFFICULTY, MAX_DIFFICULTY].
-    """
-    d_new = difficulty + DIFFICULTY_RATE * (DIFFICULTY_ANCHOR - score)
-    return max(MIN_DIFFICULTY, min(MAX_DIFFICULTY, d_new))
-
-
-def update_stability(stability: float, difficulty: float, score: float) -> float:
-    """Update memory stability after a review.
-
-    Success (score >= SUCCESS_THRESHOLD):
-        S_new = S * (1 + GROWTH_FACTOR * (1 - D) * score)
-    Lapse (score < SUCCESS_THRESHOLD):
-        S_new = max(MIN_STABILITY, S * LAPSE_FACTOR)
-    """
-    if score >= SUCCESS_THRESHOLD:
-        return stability * (1 + GROWTH_FACTOR * (1 - difficulty) * score)
-    else:
-        return max(MIN_STABILITY, stability * LAPSE_FACTOR)
+    return (stability / FACTOR) * (DESIRED_RETENTION ** (1 / DECAY) - 1)
