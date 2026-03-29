@@ -127,3 +127,86 @@ class TestInitialDifficulty:
         difficulties = [initial_difficulty(s) for s in scores]
         for i in range(len(difficulties) - 1):
             assert difficulties[i] > difficulties[i + 1]
+
+
+from knowledge_base.srs.scheduler import (
+    BLEND_CENTER,
+    ANCHOR,
+    update_stability,
+)
+
+
+class TestUpdateStability:
+    def test_high_score_grows_stability(self):
+        """score=0.9 (well above blend_center) -> stability increases."""
+        s_new = update_stability(
+            stability=10.0, difficulty=5.0, retrievability=0.9, score=0.9,
+        )
+        assert s_new > 10.0
+
+    def test_zero_score_crashes_stability(self):
+        """score=0.0 (100% lapse) -> stability drops dramatically."""
+        s_new = update_stability(
+            stability=10.0, difficulty=5.0, retrievability=0.9, score=0.0,
+        )
+        assert s_new < 2.0  # large drop from lapse formula
+
+    def test_mid_score_blends(self):
+        """score=0.5 (50/50 blend) -> between pure lapse and pure recall."""
+        s_lapse_ish = update_stability(
+            stability=10.0, difficulty=5.0, retrievability=0.9, score=0.0,
+        )
+        s_recall_ish = update_stability(
+            stability=10.0, difficulty=5.0, retrievability=0.9, score=0.9,
+        )
+        s_mid = update_stability(
+            stability=10.0, difficulty=5.0, retrievability=0.9, score=0.5,
+        )
+        assert s_lapse_ish < s_mid < s_recall_ish
+
+    def test_monotonically_increasing_with_score(self):
+        """Higher score -> higher new stability."""
+        scores = [0.0, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0]
+        stabilities = [
+            update_stability(10.0, 5.0, 0.9, s) for s in scores
+        ]
+        for i in range(len(stabilities) - 1):
+            assert stabilities[i] < stabilities[i + 1], (
+                f"score {scores[i]} -> {stabilities[i]:.4f} should be < "
+                f"score {scores[i+1]} -> {stabilities[i+1]:.4f}"
+            )
+
+    def test_gradient_in_low_scores(self):
+        """Scores 0.0, 0.2, 0.35 produce meaningfully different stabilities."""
+        s0 = update_stability(10.0, 5.0, 0.9, 0.0)
+        s2 = update_stability(10.0, 5.0, 0.9, 0.2)
+        s35 = update_stability(10.0, 5.0, 0.9, 0.35)
+        # Each step should be at least 5% different
+        assert (s2 - s0) / s0 > 0.05
+        assert (s35 - s2) / s2 > 0.05
+
+    def test_higher_difficulty_slower_recall_growth(self):
+        """Higher difficulty -> less stability growth on recall."""
+        s_easy = update_stability(10.0, 2.0, 0.9, 0.9)
+        s_hard = update_stability(10.0, 8.0, 0.9, 0.9)
+        assert s_easy > s_hard
+
+    def test_overdue_card_bigger_gain(self):
+        """Lower retrievability (more overdue) -> bigger recall gain (spacing effect)."""
+        s_recent = update_stability(10.0, 5.0, 0.9, 0.8)
+        s_overdue = update_stability(10.0, 5.0, 0.5, 0.8)
+        assert s_overdue > s_recent
+
+    def test_diminishing_returns(self):
+        """High stability cards gain less proportionally."""
+        s_low = update_stability(1.0, 5.0, 0.9, 0.8)
+        s_high = update_stability(100.0, 5.0, 0.9, 0.8)
+        ratio_low = s_low / 1.0
+        ratio_high = s_high / 100.0
+        assert ratio_low > ratio_high
+
+    def test_positive_result(self):
+        """Stability is always positive."""
+        for score in [0.0, 0.2, 0.5, 0.8, 1.0]:
+            s = update_stability(10.0, 5.0, 0.9, score)
+            assert s > 0

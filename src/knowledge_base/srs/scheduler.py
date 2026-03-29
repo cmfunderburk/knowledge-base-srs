@@ -128,3 +128,62 @@ def initial_difficulty(score: float) -> float:
     """
     d = W4 - math.exp(W5 * score * 3) + 1
     return max(MIN_DIFFICULTY, min(MAX_DIFFICULTY, d))
+
+
+def _recall_stability(
+    stability: float, difficulty: float, retrievability: float, score: float,
+) -> float:
+    """Compute stability after successful recall.
+
+    SInc = e^W8 * (11 - D) * S^(-W9) * (e^(W10*(1-R)) - 1) * score_factor(s)
+    S_recall = S * (SInc + 1)
+    """
+    score_factor = math.exp(W_SF * (score - ANCHOR))
+    s_inc = (
+        math.exp(W8)
+        * (11 - difficulty)
+        * stability ** (-W9)
+        * (math.exp(W10 * (1 - retrievability)) - 1)
+        * score_factor
+    )
+    return stability * (max(s_inc, 0) + 1)
+
+
+def _lapse_stability(
+    stability: float, difficulty: float, retrievability: float,
+) -> float:
+    """Compute stability after lapse (forgetting).
+
+    S_lapse = W11 * D^(-W12) * ((S+1)^W13 - 1) * e^(W14 * (1-R))
+    """
+    return (
+        W11
+        * difficulty ** (-W12)
+        * ((stability + 1) ** W13 - 1)
+        * math.exp(W14 * (1 - retrievability))
+    )
+
+
+def _blend(score: float) -> float:
+    """Return recall weight in [0, 1] using sigmoid centered on BLEND_CENTER.
+
+    blend(s) = 1 / (1 + e^(-(s - BLEND_CENTER) / BLEND_SCALE))
+    """
+    exponent = -(score - BLEND_CENTER) / BLEND_SCALE
+    return 1.0 / (1.0 + math.exp(min(exponent, 709.0)))
+
+
+def update_stability(
+    stability: float,
+    difficulty: float,
+    retrievability: float,
+    score: float,
+) -> float:
+    """Update stability after a review using recall/lapse blend.
+
+    S_new = blend(s) * S_recall + (1 - blend(s)) * S_lapse
+    """
+    s_recall = _recall_stability(stability, difficulty, retrievability, score)
+    s_lapse = _lapse_stability(stability, difficulty, retrievability)
+    b = _blend(score)
+    return b * s_recall + (1 - b) * s_lapse
