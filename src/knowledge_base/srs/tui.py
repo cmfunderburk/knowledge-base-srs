@@ -19,10 +19,13 @@ from knowledge_base.srs.db import (
 )
 from knowledge_base.srs.scheduler import (
     INTRA_SESSION_THRESHOLD,
-    compute_desired_retention,
+    compute_retrievability,
     compute_interval,
-    update_difficulty,
+    initial_stability,
+    initial_difficulty,
     update_stability,
+    update_stability_short_term,
+    update_difficulty,
 )
 from knowledge_base.srs.scoring import (
     IntervalResult,
@@ -317,19 +320,6 @@ class ReviewApp(App):
                 adj_c = _score_color(score)
                 display_lines.append(f"[dim]Adjusted:[/]  [{adj_c} bold]{score:.3f}[/]")
 
-        new_difficulty = update_difficulty(old_difficulty, score)
-        new_stability = update_stability(old_stability, new_difficulty, score)
-        desired_ret = compute_desired_retention(score)
-        interval = compute_interval(new_stability, desired_ret)
-
-        # Compute due date
-        from datetime import timedelta
-        if interval < INTRA_SESSION_THRESHOLD:
-            due_str = now_str
-        else:
-            due_dt = datetime.now(timezone.utc) + timedelta(days=interval)
-            due_str = due_dt.isoformat()
-
         # Compute elapsed days since last review
         elapsed_days = 0.0
         if card["last_review"]:
@@ -338,6 +328,31 @@ class ReviewApp(App):
                 elapsed_days = (datetime.now(timezone.utc) - last_dt).total_seconds() / 86400
             except (ValueError, TypeError):
                 elapsed_days = 0.0
+
+        # Compute new scheduling state
+        if card["reps"] == 0:
+            # First review: use initial functions
+            new_stability = initial_stability(score)
+            new_difficulty = initial_difficulty(score)
+        elif elapsed_days < 1.0:
+            # Same-day review: use short-term formula
+            new_stability = update_stability_short_term(old_stability, score)
+            new_difficulty = update_difficulty(old_difficulty, score)
+        else:
+            # Normal review: full recall/lapse blend
+            retrievability = compute_retrievability(elapsed_days, old_stability)
+            new_stability = update_stability(old_stability, old_difficulty, retrievability, score)
+            new_difficulty = update_difficulty(old_difficulty, score)
+
+        interval = compute_interval(new_stability)
+
+        # Compute due date
+        from datetime import timedelta
+        if interval < INTRA_SESSION_THRESHOLD:
+            due_str = now_str
+        else:
+            due_dt = datetime.now(timezone.utc) + timedelta(days=interval)
+            due_str = due_dt.isoformat()
 
         # Update database
         update_card_scheduling(self.conn, card["card_id"], {
@@ -357,7 +372,7 @@ class ReviewApp(App):
             "user_point": user_point_val,
             "true_answer": true_answer,
             "raw_score": raw_score,
-            "desired_retention": desired_ret,
+            "desired_retention": 0.9,
             "interval_applied": interval,
             "elapsed_days": elapsed_days,
         })
