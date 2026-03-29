@@ -18,6 +18,7 @@ from knowledge_base.srs.db import (
     update_card_scheduling,
 )
 from knowledge_base.srs.scheduler import (
+    BLEND_CENTER,
     INTRA_SESSION_THRESHOLD,
     compute_retrievability,
     compute_interval,
@@ -334,15 +335,15 @@ class ReviewApp(App):
             # First review: use initial functions
             new_stability = initial_stability(score)
             new_difficulty = initial_difficulty(score)
-        elif elapsed_days < 1.0:
-            # Same-day review: use short-term formula
-            new_stability = update_stability_short_term(old_stability, score)
-            new_difficulty = update_difficulty(old_difficulty, score)
         else:
-            # Normal review: full recall/lapse blend
+            # Established card: full recall/lapse blend
             retrievability = compute_retrievability(elapsed_days, old_stability)
             new_stability = update_stability(old_stability, old_difficulty, retrievability, score)
             new_difficulty = update_difficulty(old_difficulty, score)
+            # Same-day floor: passing scores never decrease stability
+            if elapsed_days < 1.0 and score >= BLEND_CENTER:
+                short_term = update_stability_short_term(old_stability, score)
+                new_stability = max(new_stability, short_term)
 
         interval = compute_interval(new_stability)
 
