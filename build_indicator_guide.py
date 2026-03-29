@@ -1422,6 +1422,12 @@ def education_cards() -> None:
         t,
     )
     add_cloze(
+        "Secondary school enrollment is measured as "
+        "{{c1::% gross enrollment ratio}}.",
+        "Can exceed 100% due to over-age or repeating students",
+        t,
+    )
+    add_cloze(
         "Secondary school enrollment in many rich countries: {{c1::>100%}}",
         "Over-age enrollment",
         t,
@@ -1447,6 +1453,12 @@ def education_cards() -> None:
         "What does tertiary school enrollment measure?",
         "Gross enrollment ratio for university/college-level education. "
         "Can exceed 100%.",
+        t,
+    )
+    add_cloze(
+        "Tertiary school enrollment is measured as "
+        "{{c1::% gross enrollment ratio}}.",
+        "Can exceed 100% due to over-age or repeating students",
         t,
     )
     add_cloze(
@@ -1672,6 +1684,11 @@ def urban_areas_cards() -> None:
         t,
     )
     add_cloze(
+        "City population (GHS-UCDB) is measured in {{c1::millions}}.",
+        "",
+        t,
+    )
+    add_cloze(
         "Guangzhou population (GHSL definition, captures Pearl River Delta): "
         "{{c1::~65M}}",
         "",
@@ -1781,6 +1798,11 @@ def urban_areas_cards() -> None:
         t,
     )
     add_cloze(
+        "City-level life expectancy is measured in {{c1::years}}.",
+        "",
+        t,
+    )
+    add_cloze(
         "Life expectancy for cities in rich countries: {{c1::80–85 years}}",
         "",
         t,
@@ -1813,6 +1835,11 @@ def urban_areas_cards() -> None:
         "Total built-up area (buildings, roads, paved surfaces) divided by "
         "population. A satellite-derived density proxy. Measured in m2 per "
         "person.",
+        t,
+    )
+    add_cloze(
+        "Built-up area per capita is measured in {{c1::m2 per person}}.",
+        "",
         t,
     )
     add_cloze(
@@ -1849,6 +1876,11 @@ def urban_areas_cards() -> None:
         "What does city-level HDI measure?",
         "Composite index of life expectancy, education, and income, adapted "
         "to the city level from subnational data. Scale from 0 to 1.",
+        t,
+    )
+    add_cloze(
+        "City-level HDI is measured as {{c1::index from 0 to 1}}.",
+        "",
         t,
     )
     add_cloze(
