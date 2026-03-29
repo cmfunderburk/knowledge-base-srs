@@ -18,12 +18,13 @@ from knowledge_base.srs.db import (
 from knowledge_base.srs.importer import import_deck
 from knowledge_base.srs.scoring import score_interval, score_point
 from knowledge_base.srs.scheduler import (
-    compute_desired_retention,
+    W_BASE,
     compute_interval,
-    update_difficulty,
+    initial_stability,
+    initial_difficulty,
     update_stability,
-    SUCCESS_THRESHOLD,
-    INITIAL_STABILITY,
+    update_difficulty,
+    compute_retrievability,
 )
 from knowledge_base.srs.stats import brier_score, calibration_rate
 
@@ -67,7 +68,7 @@ class TestFullReviewCycle:
     """End-to-end: import -> score -> schedule -> review-log -> verify."""
 
     def test_import_review_schedule(self):
-        """Import, review with good interval, verify FSRS scheduling."""
+        """Import, review with good interval, verify continuous FSRS scheduling."""
         conn = _make_conn()
         count = _run_import(conn)
         assert count == 2
@@ -84,15 +85,13 @@ class TestFullReviewCycle:
         r1 = score_interval(1000, 5000, true_answer)
         assert r1.covered is True
 
-        # Schedule via FSRS (no state machine)
-        old_difficulty = india["difficulty"]
+        # Schedule via continuous FSRS (first review)
         old_stability = india["stability"]
-        assert old_stability == pytest.approx(INITIAL_STABILITY)
+        assert old_stability == pytest.approx(W_BASE)
 
-        new_difficulty = update_difficulty(old_difficulty, r1.score)
-        new_stability = update_stability(old_stability, new_difficulty, r1.score)
-        desired_ret = compute_desired_retention(r1.score)
-        interval = compute_interval(new_stability, desired_ret)
+        new_stability = initial_stability(r1.score)
+        new_difficulty = initial_difficulty(r1.score)
+        interval = compute_interval(new_stability)
 
         due_date = (date.today() + timedelta(days=int(interval))).isoformat()
 
@@ -113,7 +112,7 @@ class TestFullReviewCycle:
             "user_point": None,
             "true_answer": true_answer,
             "raw_score": r1.score,
-            "desired_retention": desired_ret,
+            "desired_retention": 0.9,
             "interval_applied": interval,
             "elapsed_days": 0.0,
         })
@@ -121,7 +120,7 @@ class TestFullReviewCycle:
         card_after = get_card(conn, card_id)
         assert card_after is not None
         assert card_after["reps"] == 1
-        assert card_after["stability"] != INITIAL_STABILITY
+        assert card_after["stability"] != W_BASE
 
         reviews = get_reviews_for_card(conn, card_id)
         assert len(reviews) == 1
@@ -168,7 +167,6 @@ class TestFullReviewCycle:
         r3 = score_interval(500, 600, true_answer)
         assert r3.covered is False
 
-        dr = compute_desired_retention(r1.score)
         for i, (r, lower, upper) in enumerate(
             [(r1, 1000.0, 5000.0), (r2, 2000.0, 3000.0), (r3, 500.0, 600.0)]
         ):
@@ -181,7 +179,7 @@ class TestFullReviewCycle:
                 "user_point": None,
                 "true_answer": true_answer,
                 "raw_score": r.score,
-                "desired_retention": compute_desired_retention(r.score),
+                "desired_retention": 0.9,
                 "interval_applied": 1.0,
                 "elapsed_days": float(i),
             })
@@ -202,11 +200,30 @@ class TestFullReviewCycle:
         assert cr is not None
         assert cr == pytest.approx(2 / 3)
 
-    def test_new_cards_start_at_initial_stability(self):
-        """Imported cards should have stability = INITIAL_STABILITY."""
+    def test_new_cards_start_at_w_base(self):
+        """Imported cards should have stability = W_BASE."""
         conn = _make_conn()
         _run_import(conn)
 
         due_cards = get_due_cards(conn, as_of=TODAY)
         for card in due_cards:
-            assert card["stability"] == pytest.approx(INITIAL_STABILITY)
+            assert card["stability"] == pytest.approx(W_BASE)
+
+    def test_score_differentiation_on_new_cards(self):
+        """Different scores on new cards produce different intervals."""
+        conn = _make_conn()
+        _run_import(conn)
+
+        s_low = initial_stability(0.0)
+        s_mid = initial_stability(0.35)
+        s_high = initial_stability(0.8)
+
+        i_low = compute_interval(s_low)
+        i_mid = compute_interval(s_mid)
+        i_high = compute_interval(s_high)
+
+        # All should be meaningfully different
+        assert i_low < i_mid < i_high
+        # Low score should be sub-hour, high score should be multi-day
+        assert i_low < 1.0 / 24  # less than 1 hour
+        assert i_high > 1.0      # more than 1 day
