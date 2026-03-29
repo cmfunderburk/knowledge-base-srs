@@ -121,24 +121,29 @@ class TestScorePoint:
         assert score_point(50.0, 50.0, 10.0) == 1.0
 
     def test_close(self):
-        """Error < 0.25 std → 0.5."""
-        # error = |50 - 52| / 10 = 0.2, which is < 0.25 but >= 0.05
-        assert score_point(52.0, 50.0, 10.0) == 0.5
+        """Relative error < 25% but >= 5% → 0.5."""
+        # error = |50 - 45| / 50 = 0.1 (10%)
+        assert score_point(45.0, 50.0, 10.0) == 0.5
 
     def test_wrong(self):
-        """Error >= 0.25 std → 0.0."""
-        # error = |50 - 55| / 10 = 0.5, which is >= 0.25
-        assert score_point(55.0, 50.0, 10.0) == 0.0
+        """Relative error >= 25% → 0.0."""
+        # error = |50 - 35| / 50 = 0.3 (30%)
+        assert score_point(35.0, 50.0, 10.0) == 0.0
 
-    def test_boundary_at_0_05_is_not_1(self):
-        """error == 0.05 exactly → 0.5, not 1.0 (boundary is exclusive)."""
-        # error = 0.05 * 10 = 0.5 offset
-        assert score_point(50.5, 50.0, 10.0) == 0.5
+    def test_boundary_at_5_percent(self):
+        """Relative error == 5% exactly → 0.5, not 1.0 (boundary is exclusive)."""
+        # error = |100 - 95| / 100 = 0.05
+        assert score_point(95.0, 100.0, 10.0) == 0.5
 
-    def test_boundary_at_0_25_is_not_0_5(self):
-        """error == 0.25 exactly → 0.0, not 0.5 (boundary is exclusive)."""
-        # error = 0.25 * 10 = 2.5 offset
-        assert score_point(52.5, 50.0, 10.0) == 0.0
+    def test_boundary_at_25_percent(self):
+        """Relative error == 25% exactly → 0.0, not 0.5 (boundary is exclusive)."""
+        # error = |100 - 75| / 100 = 0.25
+        assert score_point(75.0, 100.0, 10.0) == 0.0
+
+    def test_small_true_answer_not_inflated(self):
+        """Guessing 10.0 when answer is 0.2 should be a miss, not perfect."""
+        # error = |0.2 - 10.0| / 0.2 = 49.0 (4900%)
+        assert score_point(10.0, 0.2, 500.0) == 0.0
 
 
 # ---------------------------------------------------------------------------

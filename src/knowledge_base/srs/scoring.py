@@ -54,15 +54,16 @@ def score_interval(
 
 
 def score_point(user_point: float, true_answer: float, indicator_std: float) -> float:
-    """Score a single point-estimate response.
+    """Score a single point-estimate response using relative error.
 
-    Returns a discrete score based on how close the guess is relative to the
-    indicator standard deviation.
+    Returns a discrete score based on how close the guess is relative to
+    the true answer's magnitude.
 
     Returns:
-        1.0 if error < 0.05 std, 0.5 if error < 0.25 std, else 0.0.
+        1.0 if relative error < 5%, 0.5 if < 25%, else 0.0.
     """
-    error = abs(true_answer - user_point) / indicator_std
+    abs_answer = max(abs(true_answer), _EPSILON)
+    error = abs(true_answer - user_point) / abs_answer
     if error < 0.05:
         return 1.0
     if error < 0.25:
