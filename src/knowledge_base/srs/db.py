@@ -13,7 +13,7 @@ from pathlib import Path
 # Schema
 # ---------------------------------------------------------------------------
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -38,8 +38,8 @@ CREATE TABLE IF NOT EXISTS cards (
     indicator_std           REAL,
     scale_factor            INTEGER NOT NULL DEFAULT 1,
     decimals                INTEGER NOT NULL DEFAULT 0,
-    difficulty              REAL    NOT NULL DEFAULT 0.3,
-    stability               REAL    NOT NULL DEFAULT 0.5,
+    difficulty              REAL    NOT NULL DEFAULT 7.0,
+    stability               REAL    NOT NULL DEFAULT 0.0067,
     last_review             TEXT,
     due                     TEXT,
     reps                    INTEGER NOT NULL DEFAULT 0,
@@ -135,6 +135,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if get_schema_version(conn) == 1:
         _apply_migration_v2(conn)
 
+    if get_schema_version(conn) == 2:
+        _apply_migration_v3(conn)
+
 
 def _apply_fresh(conn: sqlite3.Connection) -> None:
     """Create all v2 tables, indexes, and record schema version 2."""
@@ -223,6 +226,69 @@ def _apply_migration_v2(conn: sqlite3.Connection) -> None:
             )
 
             conn.execute("UPDATE schema_version SET version = 2")
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON;")
+
+
+def _apply_migration_v3(conn: sqlite3.Connection) -> None:
+    """Upgrade v2 -> v3: update defaults for continuous FSRS, clear review_log."""
+    conn.execute("PRAGMA foreign_keys=OFF;")
+    try:
+        with conn:
+            conn.execute("""
+                CREATE TABLE cards_v3 (
+                    card_id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                    deck                    TEXT    NOT NULL,
+                    indicator_id            TEXT    NOT NULL,
+                    entity                  TEXT    NOT NULL,
+                    era                     TEXT    NOT NULL,
+                    question                TEXT    NOT NULL,
+                    answer                  REAL    NOT NULL,
+                    unit_prefix             TEXT    NOT NULL DEFAULT '',
+                    unit_label              TEXT    NOT NULL DEFAULT '',
+                    notes                   TEXT    NOT NULL DEFAULT '',
+                    tags                    TEXT    NOT NULL DEFAULT '[]',
+                    indicator_mean          REAL,
+                    indicator_std           REAL,
+                    scale_factor            INTEGER NOT NULL DEFAULT 1,
+                    decimals                INTEGER NOT NULL DEFAULT 0,
+                    difficulty              REAL    NOT NULL DEFAULT 7.0,
+                    stability               REAL    NOT NULL DEFAULT 0.0067,
+                    last_review             TEXT,
+                    due                     TEXT,
+                    reps                    INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE (indicator_id, entity, era)
+                )
+            """)
+
+            conn.execute("""
+                INSERT INTO cards_v3
+                    (card_id, deck, indicator_id, entity, era, question, answer,
+                     unit_prefix, unit_label, notes, tags, indicator_mean,
+                     indicator_std, scale_factor, decimals, difficulty,
+                     stability, last_review, due, reps)
+                SELECT
+                    card_id, deck, indicator_id, entity, era, question, answer,
+                    unit_prefix, unit_label, notes, tags, indicator_mean,
+                    indicator_std, scale_factor, decimals, difficulty,
+                    stability, last_review, due, reps
+                FROM cards
+            """)
+
+            conn.execute("DROP TABLE cards")
+            conn.execute("ALTER TABLE cards_v3 RENAME TO cards")
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cards_due  ON cards (due, reps)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_cards_deck ON cards (deck)"
+            )
+
+            # Clear review history for clean slate
+            conn.execute("DELETE FROM review_log")
+
+            conn.execute("UPDATE schema_version SET version = 3")
     finally:
         conn.execute("PRAGMA foreign_keys=ON;")
 

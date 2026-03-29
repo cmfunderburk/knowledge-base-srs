@@ -120,12 +120,12 @@ def _create_v1_db(db_path=":memory:") -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 class TestSchema:
-    def test_schema_version_is_two(self):
+    def test_schema_version_is_three(self):
         conn = init_db()
-        assert get_schema_version(conn) == 2
+        assert get_schema_version(conn) == 3
 
     def test_current_schema_version_constant(self):
-        assert CURRENT_SCHEMA_VERSION == 2
+        assert CURRENT_SCHEMA_VERSION == 3
 
     def test_cards_table_exists(self):
         conn = init_db()
@@ -158,10 +158,10 @@ class TestSchema:
         assert "consecutive_successes" not in cols
 
     def test_init_is_idempotent(self):
-        """Calling _migrate again on a v2 DB does not raise or change version."""
+        """Calling _migrate again on a v3 DB does not raise or change version."""
         conn = init_db()
         _migrate(conn)
-        assert get_schema_version(conn) == 2
+        assert get_schema_version(conn) == 3
 
     def test_indexes_exist(self):
         conn = init_db()
@@ -204,8 +204,8 @@ class TestCardCRUD:
         card_id = insert_card(conn, _minimal_card())
         row = get_card(conn, card_id)
         assert row["reps"] == 0
-        assert row["difficulty"] == pytest.approx(0.3)
-        assert row["stability"] == pytest.approx(0.5)
+        assert row["difficulty"] == pytest.approx(7.0)
+        assert row["stability"] == pytest.approx(0.0067)
         assert "state" not in row
         assert "consecutive_successes" not in row
         assert row["unit_prefix"] == ""
@@ -475,17 +475,17 @@ class TestReviewLog:
             insert_review(conn, _minimal_review(card_id=9999))
 
     def test_file_based_db(self, tmp_path):
-        """init_db works with a real file path and version is 2."""
+        """init_db works with a real file path and version is 3."""
         db_file = tmp_path / "test.db"
         conn = init_db(db_file)
-        assert get_schema_version(conn) == 2
+        assert get_schema_version(conn) == 3
         card_id = insert_card(conn, _minimal_card())
         assert get_card(conn, card_id) is not None
         conn.close()
 
         # Re-open and verify persistence
         conn2 = init_db(db_file)
-        assert get_schema_version(conn2) == 2
+        assert get_schema_version(conn2) == 3
         assert get_card(conn2, card_id) is not None
 
 
@@ -514,7 +514,7 @@ class TestV1Migration:
         # Run the migration
         _migrate(conn)
 
-        assert get_schema_version(conn) == 2
+        assert get_schema_version(conn) == 3
 
         # Verify removed columns are gone
         cols = {
@@ -555,8 +555,8 @@ class TestV1Migration:
         assert row is not None
         assert row[0] == pytest.approx(7.5)
 
-    def test_v1_migration_preserves_reviews(self):
-        """review_log entries survive the v1→v2 migration."""
+    def test_v1_migration_clears_reviews(self):
+        """review_log is cleared by the v1→v2→v3 migration chain (v3 truncates)."""
         conn = _create_v1_db()
 
         with conn:
@@ -579,8 +579,41 @@ class TestV1Migration:
 
         _migrate(conn)
 
-        reviews = conn.execute(
-            "SELECT * FROM review_log WHERE card_id = ?", (card_id,)
-        ).fetchall()
-        assert len(reviews) == 1
-        assert reviews[0]["raw_score"] == pytest.approx(0.75)
+        # v3 clears review_log
+        count = conn.execute(
+            "SELECT COUNT(*) FROM review_log"
+        ).fetchone()[0]
+        assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# TestMigrationV3
+# ---------------------------------------------------------------------------
+
+class TestMigrationV3:
+    def test_v2_to_v3_updates_defaults(self):
+        """v2 -> v3: difficulty default 7.0, stability default 0.0067."""
+        conn = init_db()
+        assert get_schema_version(conn) == 3
+
+        # Insert a card with defaults (no explicit difficulty/stability)
+        conn.execute("""
+            INSERT INTO cards (deck, indicator_id, entity, era, question, answer)
+            VALUES ('test', 'ind1', 'ent1', '2020', 'Q?', 42.0)
+        """)
+        conn.commit()
+        row = conn.execute("SELECT difficulty, stability FROM cards WHERE indicator_id='ind1'").fetchone()
+        assert row[0] == pytest.approx(7.0)
+        assert row[1] == pytest.approx(0.0067)
+
+    def test_v3_review_log_cleared(self):
+        """v3 migration should truncate review_log."""
+        conn = init_db()
+        # review_log should exist but be empty
+        count = conn.execute("SELECT COUNT(*) FROM review_log").fetchone()[0]
+        assert count == 0
+
+    def test_fresh_db_is_v3(self):
+        """A brand-new database should be at schema version 3."""
+        conn = init_db()
+        assert get_schema_version(conn) == 3
