@@ -82,6 +82,7 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 
 ### SRS scoring
 - **Answer-normalized log-likelihood**: interval scoring uses `S = -z²/2 - ln(CoV)` transformed via logistic (`center=2.0, scale=1.0`). No `indicator_std` parameter — depends only on interval bounds and true answer.
+- **Point prediction scoring**: relative error `|guess - answer| / |answer|`. Thresholds: <5% perfect (1.0), <25% close (0.5), else miss (0.0). `indicator_std` parameter is accepted but unused for scoring (still needed by `apply_difficulty_modifier`).
 - **All values stored in display units** (divided by scale_factor). Scoring operates directly on stored values without conversion.
 
 ### SRS scheduling (continuous FSRS)
@@ -90,7 +91,7 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 - **Desired retention is constant** (`R_d = 0.9`). Score affects intervals entirely through stability updates, not retention modulation.
 - **Initial stability**: `S_0(s) = W_BASE * e^(W_SCALE * s)` where `W_BASE=0.0067` (~10 min at score=0), `W_SCALE=6.93` (~6.9 days at score=1.0).
 - **Difficulty anchor**: `ANCHOR=0.7`. Scores below 0.7 increase difficulty, above decrease it. Difficulty range [1, 10] with FSRS mean reversion (`W7=0.01`).
-- **Three-branch scheduling in TUI**: first review (`reps=0`) uses `initial_stability`/`initial_difficulty`; same-day (`elapsed<1`) uses short-term formula with v6 convergence; normal uses full recall/lapse blend.
+- **Two-branch scheduling in TUI**: first review (`reps=0`) uses `initial_stability`/`initial_difficulty`; established cards always use full recall/lapse blend (same-day passing scores get a short-term floor to prevent stability decrease).
 - **No state machine**: all cards use FSRS directly. No learning/review distinction.
 - **New cards randomized**: `get_due_cards` returns new cards (reps=0) in random order for interleaved practice.
 - **Intra-session repeat**: cards with computed interval < `INTRA_SESSION_THRESHOLD` (0.05 days) are re-queued within the session.
