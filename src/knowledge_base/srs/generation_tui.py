@@ -49,6 +49,13 @@ def _parse_reading_spec(spec: str) -> list[str]:
     return topic_ids
 
 
+def _los_sort_key(card: dict) -> tuple[int, str]:
+    """Sort key for natural LOS ordering: (reading_number, suffix)."""
+    los_id = card["los_id"]
+    parts = los_id.split(".", 1)
+    return (int(parts[0]), parts[1] if len(parts) > 1 else "")
+
+
 MAX_MASKING_LEVEL = 2
 PRACTICE_TYPEIN_LEVEL = 3    # virtual level for practice mode full type-in
 GRADUATION_PASSES = 2       # consecutive passes at max level to graduate
