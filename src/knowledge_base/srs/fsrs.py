@@ -198,7 +198,8 @@ def schedule(
         new_stability = initial_stability(grade)
         new_difficulty = initial_difficulty(grade)
     else:
-        assert last_review is not None, "last_review must be provided for reps > 0"
+        if last_review is None:
+            raise ValueError("last_review must be provided for reps > 0")
 
         # Normalise both datetimes to UTC-aware for safe subtraction
         if last_review.tzinfo is None:
