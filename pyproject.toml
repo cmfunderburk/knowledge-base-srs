@@ -17,6 +17,8 @@ fetch-desc-stats = "knowledge_base.fetch_desc_stats:main"
 build-deck = "knowledge_base.build_deck:main"
 review = "knowledge_base.srs.tui:main"
 srs-import = "knowledge_base.srs.importer:main"
+review-gen = "knowledge_base.srs.generation_tui:main"
+gen-import = "knowledge_base.srs.generation_import:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
