@@ -379,17 +379,19 @@ class GenerationReviewApp(App):
         progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
 
         if self.practice_mode and level >= PRACTICE_TYPEIN_LEVEL:
+            mode_label = "ordered" if self.ordered_practice else "practice"
             header = (
                 f"{card['deck']} > {card['los_id']}  {progress}"
-                f"  (practice — type-in)"
+                f"  ({mode_label} — type-in)"
             )
             self.query_one("#card-header", Static).update(header)
             self.query_one("#question", Static).update(card["question"])
             self.query_one("#masked-text", Static).update("")
         elif self.practice_mode:
+            mode_label = "ordered" if self.ordered_practice else "practice"
             header = (
                 f"{card['deck']} > {card['los_id']}  {progress}"
-                f"  (practice — level {level}/{MAX_MASKING_LEVEL})"
+                f"  ({mode_label} — level {level}/{MAX_MASKING_LEVEL})"
             )
             self.query_one("#card-header", Static).update(header)
             self.query_one("#question", Static).update(card["question"])
@@ -961,6 +963,12 @@ def main() -> None:
         help="Massed practice mode. Specify readings: 'all', '36', '1-5', '1,3,5'. "
              "No persistent state changes — purely in-memory drill.",
     )
+    parser.add_argument(
+        "--ordered-practice", metavar="READINGS", default=None,
+        help="Ordered practice mode. Cards cycle in fixed LOS order. "
+             "Specify readings: 'all', '36', '1-5', '1,3,5'. "
+             "No persistent state changes.",
+    )
     args = parser.parse_args()
 
     app = GenerationReviewApp(
@@ -969,5 +977,6 @@ def main() -> None:
         limit=args.limit,
         stats_only=args.stats,
         practice=args.practice,
+        ordered_practice=args.ordered_practice,
     )
     app.run()

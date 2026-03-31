@@ -35,6 +35,10 @@ uv run review-gen --practice 36         # massed practice: single reading
 uv run review-gen --practice 1-5        # massed practice: reading range
 uv run review-gen --practice 1,3,5      # massed practice: specific readings
 uv run review-gen --practice all        # massed practice: all readings
+uv run review-gen --ordered-practice 36   # ordered practice: single reading
+uv run review-gen --ordered-practice 1-5  # ordered practice: reading range
+uv run review-gen --ordered-practice 1,3,5 # ordered practice: specific readings
+uv run review-gen --ordered-practice all  # ordered practice: all readings
 
 # Anki export (sharing/backup)
 uv run build-deck <deck_key>         # generate .apkg from CSVs
@@ -120,6 +124,7 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 - **Two review modes**: global review (masking → graduation → FSRS) and massed practice (transient, no DB writes)
 - **Global review lifecycle**: generation phase (3 masking levels, queue-based spacing) → graduation (2 consecutive passes at max masking) → recall phase (standard FSRS v6 with Again/Hard/Good/Easy)
 - **Massed practice** (`--practice`): in-memory only, no persistent state changes. Cards progress through masking levels → full type-in, then re-queue at end of deck. Filter by reading number(s).
+- **Ordered practice** (`--ordered-practice`): like massed practice but cards cycle in fixed LOS order (ring buffer). Pass/fail affects masking level but not queue position — card always goes to back. User drills until they quit.
 - **Standard FSRS v6** (`fsrs.py`): completely independent from `scheduler.py`. Published default weights `W[0..18]`, 4-button discrete grading. Used only for recall phase.
 - **Regression rule**: recall-phase cards that get Again with interval < 24h demote back to generation at level 2.
 - **LOS data**: `data/cfa_level1_los.json` — 225 statements across 48 CFA Level I readings. Not gitignored (checked in).

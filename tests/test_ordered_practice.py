@@ -207,3 +207,35 @@ class TestOrderedPracticeRequeue:
         last_item = ordered_app.queue[-1]
         assert last_item.card["los_id"] == "1.a"
         assert last_item.delay == 0
+
+
+class TestOrderedPracticeHeader:
+    def test_app_title_is_ordered_practice(self, ordered_app):
+        """App title should be 'Ordered Practice' in ordered mode."""
+        ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
+        ordered_app._build_ordered_practice_queue()
+        assert ordered_app.ordered_practice is True
+        assert ordered_app.practice_mode is True
+
+    def test_regular_practice_flag_not_ordered(self, tmp_path):
+        """Regular --practice should not set ordered_practice."""
+        data = {
+            "deck": "cfa_level1",
+            "readings": [{
+                "number": 1, "title": "Test", "book": 1,
+                "los": [{"id": "1.a", "text": "test text"}],
+            }],
+        }
+        json_path = tmp_path / "los.json"
+        json_path.write_text(json.dumps(data))
+        db_path = tmp_path / "test.db"
+        conn = init_generation_db(db_path=str(db_path))
+        import_los(conn, data_path=json_path)
+        conn.close()
+
+        app = GenerationReviewApp(
+            db_path=str(db_path),
+            practice="1",
+        )
+        assert app.practice_mode is True
+        assert app.ordered_practice is False
