@@ -234,13 +234,18 @@ uv run review-gen --limit N           # cap session size
 uv run review-gen --practice 36       # massed practice: single reading
 uv run review-gen --practice 1-5      # massed practice: reading range
 uv run review-gen --practice all      # massed practice: all readings
+uv run review-gen --ordered-practice 36   # ordered practice: single reading
+uv run review-gen --ordered-practice 1-5  # ordered practice: reading range
+uv run review-gen --ordered-practice all  # ordered practice: all readings
 ```
 
-### Two Modes
+### Three Modes
 
 **Global review** (default): the full masking → graduation → FSRS pipeline. Persistent state changes. Long-term retention.
 
-**Massed practice** (`--practice`): transient drill on selected readings. No DB writes — all state in-memory. Cards progress through masking levels → full type-in, then re-queue at end of deck. User drills until they quit (Ctrl+Q). Useful as warmup before reading chapters or as a review pass when feeling rusty.
+**Massed practice** (`--practice`): transient drill on selected readings. No DB writes — all state in-memory. Cards are presented in random order. Pass/fail affects re-queue spacing (pass inserts further back, fail re-queues soon). Cards progress through masking levels → full type-in, then re-queue at end of deck. User drills until they quit (Ctrl+Q). Useful for retention drilling when somewhat familiar with the material.
+
+**Ordered practice** (`--ordered-practice`): transient drill like massed practice, but cards cycle in fixed LOS order (1.a, 1.b, 1.c, ...) as a ring buffer. Pass or fail, the card always goes to the back of the deck, preserving order across all passes. Masking progression rules are the same (pass advances level, fail resets to 0, 2 passes at max masking before type-in). Cards never drop out — user drills until they quit. Useful for initial learning of a new reading, building associative links between adjacent LOS statements.
 
 ### Session Composition (Global Review)
 
