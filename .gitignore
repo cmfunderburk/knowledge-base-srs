@@ -1,6 +1,8 @@
 data/**/*.csv
 data/**/*.db
+data/**/*.json
 *.apkg
+*.env
 resources/
 __pycache__/
 .venv/
