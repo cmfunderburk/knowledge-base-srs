@@ -585,13 +585,21 @@ class GenerationReviewApp(App):
         if level < MAX_MASKING_LEVEL:
             new_level = level + 1
             card["masking_level"] = new_level
+            card["_practice_max_passes"] = 0
             self._finish_review()
             self._requeue(item, new_level + 1)
         elif level == MAX_MASKING_LEVEL:
-            # Advance to type-in level (no masking)
-            card["masking_level"] = PRACTICE_TYPEIN_LEVEL
-            self._finish_review()
-            self._requeue(item, MAX_MASKING_LEVEL + 1)
+            # Need 2 passes at max masking before advancing to type-in
+            passes = card.get("_practice_max_passes", 0) + 1
+            card["_practice_max_passes"] = passes
+            if passes >= 2:
+                card["masking_level"] = PRACTICE_TYPEIN_LEVEL
+                card["_practice_max_passes"] = 0
+                self._finish_review()
+                self._requeue(item, MAX_MASKING_LEVEL + 1)
+            else:
+                self._finish_review()
+                self._requeue(item, GRADUATION_GAP)
         else:
             # At type-in level — success, re-queue at end of deck
             self._finish_review()
@@ -606,6 +614,7 @@ class GenerationReviewApp(App):
             # In-memory only: reset to level 0, re-queue soon
             card["masking_level"] = 0
             card["consecutive_max_passes"] = 0
+            card["_practice_max_passes"] = 0
             self._finish_review()
             self._requeue(item, 1)
             return
