@@ -311,7 +311,7 @@ class GenerationReviewApp(App):
             f"  (generation — level {level}/{MAX_MASKING_LEVEL})"
         )
         self.query_one("#card-header", Static).update(header)
-        self.query_one("#question", Static).update(f"{card['los_id']}:")
+        self.query_one("#question", Static).update(card["question"])
 
         masked = mask_text(card["answer"], level, card_id_str)
         self.query_one("#masked-text", Static).update(masked)

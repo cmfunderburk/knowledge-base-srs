@@ -97,7 +97,7 @@ class TestImportLos:
 
         assert row["deck"] == "cfa_level1"
         assert row["topic_id"] == "1"
-        assert row["question"] == "What is LOS 1.a?"
+        assert row["question"] == "What is LOS 1.a? (Rates and Returns)"
         assert row["answer"] == "interpret interest rates as required rates of return"
         assert row["phase"] == "generation"
         assert row["masking_level"] == 0
@@ -114,7 +114,7 @@ class TestImportLos:
 
         assert row["deck"] == "cfa_level1"
         assert row["topic_id"] == "2"
-        assert row["question"] == "What is LOS 2.a?"
+        assert row["question"] == "What is LOS 2.a? (Time Value of Money: Future Value and Present Value)"
         assert "discounts" in row["answer"]
 
     def test_tags(self, sample_los_data):

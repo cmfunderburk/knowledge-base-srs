@@ -80,7 +80,7 @@ def import_los(
 
         for los in reading["los"]:
             los_id = los["id"]
-            question = f"What is LOS {los_id}?"
+            question = f"What is LOS {los_id}? ({title})"
             answer = los["text"]
 
             upsert_generation_card(conn, {
