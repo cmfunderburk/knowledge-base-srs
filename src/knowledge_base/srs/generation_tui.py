@@ -1,0 +1,834 @@
+"""Textual TUI for reviewing generation cards with masking and FSRS scheduling.
+
+Two review modes in a single session:
+1. Generation phase — masked text, binary pass/fail grading, queue-based spacing.
+2. Recall phase — bare question, typed answer, 4-button FSRS grading.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime, timezone
+
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Vertical
+from textual.widgets import Footer, Header, Input, Static
+
+from knowledge_base.srs.fsrs import Grade, SchedulingResult, schedule
+from knowledge_base.srs.generation_db import (
+    get_due_generation_cards,
+    get_generation_phase_cards,
+    init_generation_db,
+    insert_generation_review,
+    update_generation_phase,
+    update_generation_scheduling,
+)
+from knowledge_base.srs.masking import mask_text
+from knowledge_base.srs.text_scoring import TokenResult, compare_tokens, tokenize
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+MAX_MASKING_LEVEL = 2
+GRADUATION_PASSES = 2       # consecutive passes at max level to graduate
+GRADUATION_GAP = 5           # cards between graduation attempts
+REGRESSION_INTERVAL_THRESHOLD = 1.0  # days — regress if Again interval < this
+
+# ---------------------------------------------------------------------------
+# Queue item
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class QueueItem:
+    """Wraps a card dict with a delay counter for intra-session spacing."""
+
+    card: dict
+    delay: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------------------------
+
+
+def _token_diff_markup(results: list[TokenResult]) -> str:
+    """Build Rich markup showing a coloured word-by-word diff."""
+    parts: list[str] = []
+    for r in results:
+        if r.status == "exact":
+            parts.append(f"[green]{r.expected}[/]")
+        elif r.status == "close":
+            parts.append(f"[yellow]{r.expected}[/]")
+        elif r.status == "wrong":
+            parts.append(f"[red]{r.expected}[/]")
+        elif r.status == "missing":
+            parts.append(f"[red]__{r.expected}__[/]")
+        elif r.status == "extra":
+            parts.append(f"[dim strike]{r.typed}[/]")
+    return " ".join(parts)
+
+
+def _interval_display(interval: float) -> str:
+    """Format an interval in days to a human-readable string."""
+    minutes = interval * 24 * 60
+    if minutes < 60:
+        return f"{minutes:.0f} min"
+    if interval < 1.0:
+        hours = round(interval * 24)
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    if interval < 1.5:
+        return "1 day"
+    days = round(interval)
+    return f"{days} day{'s' if days != 1 else ''}"
+
+
+# ---------------------------------------------------------------------------
+# CSS
+# ---------------------------------------------------------------------------
+
+_CSS = """
+Screen {
+    background: $surface;
+}
+
+#card-header {
+    dock: top;
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+    color: $text-muted;
+}
+
+#question {
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+    text-style: bold;
+}
+
+#masked-text {
+    width: 100%;
+    height: auto;
+    padding: 0 2 1 2;
+}
+
+#answer-input {
+    width: 100%;
+    margin: 1 2;
+}
+
+#result {
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+}
+
+#stats-display {
+    width: 100%;
+    height: auto;
+    padding: 1 2;
+}
+"""
+
+# ---------------------------------------------------------------------------
+# GenerationReviewApp
+# ---------------------------------------------------------------------------
+
+
+class GenerationReviewApp(App):
+    """Textual app for reviewing generation cards."""
+
+    CSS = _CSS
+    TITLE = "Generation Review"
+
+    BINDINGS = [
+        Binding("ctrl+q", "quit", "Quit", priority=True),
+        Binding("ctrl+s", "toggle_stats", "Stats", priority=True),
+    ]
+
+    def __init__(
+        self,
+        db_path: str = "data/srs.db",
+        deck: str | None = None,
+        limit: int | None = None,
+        stats_only: bool = False,
+    ) -> None:
+        super().__init__()
+        self.db_path = db_path
+        self.deck_filter = deck
+        self.card_limit = limit
+        self.stats_only = stats_only
+        self.conn = None
+        self.queue: deque[QueueItem] = deque()
+        self.total_reviewed: int = 0
+        self.total_cards: int = 0
+
+        # State machine
+        self._awaiting_gen_grade: bool = False   # waiting for pass/fail
+        self._awaiting_recall_grade: bool = False  # waiting for 1/2/3/4
+        self._awaiting_advance: bool = False      # waiting for space/enter to advance
+        self._pending_requeue: tuple[QueueItem, int] | None = None  # (item, delay)
+        self._current_item: QueueItem | None = None
+        self._last_diff_markup: str = ""
+        self.showing_stats: bool = False
+
+    # ------------------------------------------------------------------
+    # Compose
+    # ------------------------------------------------------------------
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        with Vertical():
+            yield Static("", id="card-header")
+            yield Static("", id="question")
+            yield Static("", id="masked-text")
+            yield Input(placeholder="Type the answer...", id="answer-input")
+            yield Static("", id="result")
+            yield Static("", id="stats-display")
+        yield Footer()
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def on_mount(self) -> None:
+        self.conn = init_generation_db(self.db_path)
+        if self.stats_only:
+            self._show_stats_screen()
+            return
+        self._build_queue()
+        self.total_cards = len(self.queue)
+        if not self.queue:
+            self.query_one("#card-header", Static).update("No cards due")
+            self.query_one("#question", Static).update(
+                "All caught up! Press Ctrl+Q to quit."
+            )
+            self._hide_input()
+            return
+        self._show_next()
+
+    # ------------------------------------------------------------------
+    # Queue management
+    # ------------------------------------------------------------------
+
+    def _build_queue(self) -> None:
+        """Build the initial session queue from due recall + generation cards."""
+        limit = self.card_limit
+        now_str = datetime.now(timezone.utc).isoformat()
+
+        # Recall-phase due cards first
+        recall_cards = get_due_generation_cards(
+            self.conn, as_of=now_str, deck=self.deck_filter, limit=limit,
+        )
+        for c in recall_cards:
+            self.queue.append(QueueItem(card=c, delay=0))
+
+        remaining = None
+        if limit is not None:
+            remaining = max(0, limit - len(recall_cards))
+            if remaining == 0:
+                return
+
+        # Generation-phase cards to fill remaining capacity
+        gen_cards = get_generation_phase_cards(
+            self.conn, deck=self.deck_filter, limit=remaining,
+        )
+        for c in gen_cards:
+            self.queue.append(QueueItem(card=c, delay=0))
+
+    def _pop_next(self) -> QueueItem | None:
+        """Pop the next reviewable item from the queue.
+
+        Finds the first item with delay <= 0. If all have delays > 0,
+        forces the front item.
+        """
+        if not self.queue:
+            return None
+
+        # Find first ready item
+        for i, item in enumerate(self.queue):
+            if item.delay <= 0:
+                del self.queue[i]
+                return item
+
+        # Force the front item
+        return self.queue.popleft()
+
+    def _decrement_delays(self) -> None:
+        """Decrement delay counters after a review completes."""
+        for item in self.queue:
+            if item.delay > 0:
+                item.delay -= 1
+
+    def _requeue(self, item: QueueItem, delay: int) -> None:
+        """Re-add an item to the back of the queue with a new delay."""
+        item.delay = delay
+        self.queue.append(item)
+        self.total_cards += 1
+
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
+
+    def _show_next(self) -> None:
+        """Advance to the next card in the queue."""
+        item = self._pop_next()
+        if item is None:
+            self.query_one("#card-header", Static).update("Session complete")
+            self.query_one("#question", Static).update(
+                "All cards reviewed! Press Ctrl+Q to quit or Ctrl+S for stats."
+            )
+            self.query_one("#masked-text", Static).update("")
+            self._hide_input()
+            self.query_one("#result", Static).update("")
+            self._current_item = None
+            return
+
+        self._current_item = item
+        card = item.card
+        phase = card["phase"]
+
+        if phase == "generation":
+            self._show_generation_card(item)
+        else:
+            self._show_recall_card(item)
+
+    def _show_generation_card(self, item: QueueItem) -> None:
+        """Display a generation-phase card with masked text."""
+        card = item.card
+        level = card["masking_level"]
+        card_id_str = str(card["card_id"])
+
+        remaining = len(self.queue) + 1  # +1 for current
+        progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
+        header = (
+            f"{card['deck']} > {card['los_id']}  {progress}"
+            f"  (generation — level {level}/{MAX_MASKING_LEVEL})"
+        )
+        self.query_one("#card-header", Static).update(header)
+        self.query_one("#question", Static).update(f"{card['los_id']}:")
+
+        masked = mask_text(card["answer"], level, card_id_str)
+        self.query_one("#masked-text", Static).update(masked)
+
+        self.query_one("#result", Static).update("")
+        self.query_one("#stats-display", Static).update("")
+
+        self._awaiting_gen_grade = False
+        self._awaiting_recall_grade = False
+        self.showing_stats = False
+
+        inp = self.query_one("#answer-input", Input)
+        inp.display = True
+        inp.value = ""
+        inp.placeholder = "Type the answer..."
+        inp.focus()
+
+    def _show_recall_card(self, item: QueueItem) -> None:
+        """Display a recall-phase card with bare question."""
+        card = item.card
+        progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
+        header = f"{card['deck']} > {card['los_id']}  {progress}  (recall)"
+        self.query_one("#card-header", Static).update(header)
+        self.query_one("#question", Static).update(card["question"])
+        self.query_one("#masked-text", Static).update("")
+
+        self.query_one("#result", Static).update("")
+        self.query_one("#stats-display", Static).update("")
+
+        self._awaiting_gen_grade = False
+        self._awaiting_recall_grade = False
+        self.showing_stats = False
+
+        inp = self.query_one("#answer-input", Input)
+        inp.display = True
+        inp.value = ""
+        inp.placeholder = "Type the answer..."
+        inp.focus()
+
+    # ------------------------------------------------------------------
+    # Input handling
+    # ------------------------------------------------------------------
+
+    def _hide_input(self) -> None:
+        """Hide the answer input and release focus."""
+        inp = self.query_one("#answer-input", Input)
+        inp.display = False
+        inp.blur()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle answer submission."""
+        if self.showing_stats:
+            return
+        if self._current_item is None:
+            return
+        if self._awaiting_gen_grade or self._awaiting_recall_grade or self._awaiting_advance:
+            return
+
+        text = event.value.strip()
+        if not text:
+            return
+
+        card = self._current_item.card
+        phase = card["phase"]
+
+        # Tokenize and compare
+        typed_tokens = tokenize(text)
+        correct_tokens = tokenize(card["answer"])
+        results = compare_tokens(typed_tokens, correct_tokens)
+        diff_markup = _token_diff_markup(results)
+
+        if phase == "generation":
+            self._show_generation_feedback(diff_markup)
+        else:
+            self._show_recall_feedback(diff_markup)
+
+    def _show_generation_feedback(self, diff_markup: str) -> None:
+        """Show diff and prompt for pass/fail."""
+        lines = [
+            diff_markup,
+            "",
+            "[dim]Correct:[/]",
+            f"  {self._current_item.card['answer']}",
+            "",
+            "[bold]Space/Enter[/] = Pass    [bold]f[/] = Fail",
+        ]
+        self.query_one("#result", Static).update("\n".join(lines))
+        self._awaiting_gen_grade = True
+        self._hide_input()
+
+    def _show_recall_feedback(self, diff_markup: str) -> None:
+        """Show diff and prompt for FSRS grade."""
+        self._last_diff_markup = diff_markup
+        lines = [
+            diff_markup,
+            "",
+            "[dim]Correct:[/]",
+            f"  {self._current_item.card['answer']}",
+            "",
+            "[bold]1[/]=Again  [bold]2[/]=Hard  [bold]3[/]=Good  [bold]4[/]=Easy",
+        ]
+        self.query_one("#result", Static).update("\n".join(lines))
+        self._awaiting_recall_grade = True
+        self._hide_input()
+
+    # ------------------------------------------------------------------
+    # Key handling for grading
+    # ------------------------------------------------------------------
+
+    def on_key(self, event) -> None:
+        """Handle grade keys after feedback is shown."""
+        if self.showing_stats:
+            return
+
+        if self._awaiting_advance:
+            if event.key in ("space", "enter"):
+                event.prevent_default()
+                self._awaiting_advance = False
+                # Apply any pending re-queue
+                if self._pending_requeue is not None:
+                    item, delay = self._pending_requeue
+                    self._pending_requeue = None
+                    self._requeue(item, delay)
+                self._advance_after_grade()
+            return
+
+        if self._awaiting_gen_grade:
+            if event.key in ("space", "enter"):
+                event.prevent_default()
+                self._handle_generation_pass()
+            elif event.key == "f":
+                event.prevent_default()
+                self._handle_generation_fail()
+            return
+
+        if self._awaiting_recall_grade:
+            if event.key in ("1", "2", "3", "4"):
+                event.prevent_default()
+                grade = Grade(int(event.key))
+                self._handle_recall_grade(grade)
+            return
+
+    # ------------------------------------------------------------------
+    # Generation phase handlers
+    # ------------------------------------------------------------------
+
+    def _handle_generation_pass(self) -> None:
+        """Handle a Pass grade for a generation-phase card."""
+        item = self._current_item
+        card = item.card
+        now_str = datetime.now(timezone.utc).isoformat()
+        level = card["masking_level"]
+
+        # Compute elapsed_days for review log
+        elapsed_days = self._elapsed_days(card)
+
+        if level < MAX_MASKING_LEVEL:
+            # Advance masking level, re-queue
+            new_level = level + 1
+            update_generation_phase(self.conn, card["card_id"], {
+                "masking_level": new_level,
+                "consecutive_max_passes": 0,
+            })
+            card["masking_level"] = new_level
+            card["consecutive_max_passes"] = 0
+
+            insert_generation_review(self.conn, {
+                "card_id": card["card_id"],
+                "timestamp": now_str,
+                "answer_mode": "generation",
+                "phase_level": level,
+                "grade": None,
+                "passed": 1,
+                "elapsed_days": elapsed_days,
+                "interval_applied": None,
+            })
+
+            self._finish_review()
+            self._requeue(item, new_level + 1)
+        else:
+            # At max level — check for graduation
+            new_passes = card["consecutive_max_passes"] + 1
+            update_generation_phase(self.conn, card["card_id"], {
+                "consecutive_max_passes": new_passes,
+            })
+            card["consecutive_max_passes"] = new_passes
+
+            if new_passes >= GRADUATION_PASSES:
+                # Graduate to recall phase
+                self._graduate_card(card, now_str, elapsed_days)
+                self._finish_review()
+            else:
+                insert_generation_review(self.conn, {
+                    "card_id": card["card_id"],
+                    "timestamp": now_str,
+                    "answer_mode": "generation",
+                    "phase_level": level,
+                    "grade": None,
+                    "passed": 1,
+                    "elapsed_days": elapsed_days,
+                    "interval_applied": None,
+                })
+                self._finish_review()
+                self._requeue(item, GRADUATION_GAP)
+
+    def _handle_generation_fail(self) -> None:
+        """Handle a Fail grade for a generation-phase card."""
+        item = self._current_item
+        card = item.card
+        now_str = datetime.now(timezone.utc).isoformat()
+        level = card["masking_level"]
+        elapsed_days = self._elapsed_days(card)
+
+        # Reset to level 0
+        update_generation_phase(self.conn, card["card_id"], {
+            "masking_level": 0,
+            "consecutive_max_passes": 0,
+        })
+        card["masking_level"] = 0
+        card["consecutive_max_passes"] = 0
+
+        insert_generation_review(self.conn, {
+            "card_id": card["card_id"],
+            "timestamp": now_str,
+            "answer_mode": "generation",
+            "phase_level": level,
+            "grade": None,
+            "passed": 0,
+            "elapsed_days": elapsed_days,
+            "interval_applied": None,
+        })
+
+        self._finish_review()
+        self._requeue(item, 1)
+
+    def _graduate_card(
+        self, card: dict, now_str: str, elapsed_days: float
+    ) -> None:
+        """Graduate a card from generation to recall phase.
+
+        Sets phase='recall' and performs an initial FSRS review so the card
+        gets reps=1 and a due date.
+        """
+        now_dt = datetime.now(timezone.utc)
+
+        # Update phase
+        update_generation_phase(self.conn, card["card_id"], {
+            "phase": "recall",
+            "masking_level": card["masking_level"],
+            "consecutive_max_passes": card["consecutive_max_passes"],
+        })
+
+        # Initial FSRS review to set reps=1 and due date
+        result: SchedulingResult = schedule(
+            difficulty=5.0,
+            stability=0.0,
+            reps=0,
+            last_review=None,
+            grade=Grade.GOOD,
+            now=now_dt,
+        )
+        update_generation_scheduling(self.conn, card["card_id"], {
+            "difficulty": result.difficulty,
+            "stability": result.stability,
+            "last_review": now_str,
+            "due": result.due,
+            "reps": result.reps,
+        })
+
+        insert_generation_review(self.conn, {
+            "card_id": card["card_id"],
+            "timestamp": now_str,
+            "answer_mode": "generation",
+            "phase_level": card["masking_level"],
+            "grade": None,
+            "passed": 1,
+            "elapsed_days": elapsed_days,
+            "interval_applied": result.interval,
+        })
+
+    # ------------------------------------------------------------------
+    # Recall phase handler
+    # ------------------------------------------------------------------
+
+    def _handle_recall_grade(self, grade: Grade) -> None:
+        """Handle an FSRS grade for a recall-phase card."""
+        item = self._current_item
+        card = item.card
+        now_dt = datetime.now(timezone.utc)
+        now_str = now_dt.isoformat()
+        elapsed_days = self._elapsed_days(card)
+
+        # Parse last_review from string to datetime
+        last_review_dt = None
+        if card["last_review"]:
+            try:
+                last_review_dt = datetime.fromisoformat(card["last_review"])
+            except (ValueError, TypeError):
+                last_review_dt = None
+
+        result: SchedulingResult = schedule(
+            difficulty=card["difficulty"],
+            stability=card["stability"],
+            reps=card["reps"],
+            last_review=last_review_dt,
+            grade=grade,
+            now=now_dt,
+        )
+
+        update_generation_scheduling(self.conn, card["card_id"], {
+            "difficulty": result.difficulty,
+            "stability": result.stability,
+            "last_review": now_str,
+            "due": result.due,
+            "reps": result.reps,
+        })
+
+        insert_generation_review(self.conn, {
+            "card_id": card["card_id"],
+            "timestamp": now_str,
+            "answer_mode": "recall",
+            "phase_level": None,
+            "grade": int(grade),
+            "passed": None,
+            "elapsed_days": elapsed_days,
+            "interval_applied": result.interval,
+        })
+
+        # Show scheduling feedback replacing the grade prompt
+        interval_str = _interval_display(result.interval)
+        grade_name = grade.name.title()
+        card = item.card
+        diff_markup = self._last_diff_markup
+        lines = [
+            diff_markup,
+            "",
+            "[dim]Correct:[/]",
+            f"  {card['answer']}",
+            "",
+            f"[bold]Grade:[/] {grade_name}    [bold]Next:[/] {interval_str}",
+        ]
+
+        # Regression rule: Again + short interval → demote to generation
+        if grade == Grade.AGAIN and result.interval < REGRESSION_INTERVAL_THRESHOLD:
+            update_generation_phase(self.conn, card["card_id"], {
+                "phase": "generation",
+                "masking_level": MAX_MASKING_LEVEL,
+                "consecutive_max_passes": 0,
+            })
+            # Refresh card state for re-queue
+            card["phase"] = "generation"
+            card["masking_level"] = MAX_MASKING_LEVEL
+            card["consecutive_max_passes"] = 0
+            card["difficulty"] = result.difficulty
+            card["stability"] = result.stability
+            card["last_review"] = now_str
+            card["due"] = result.due
+            card["reps"] = result.reps
+
+            lines.append("[red](regressed to generation — level 2)[/]")
+            self._pending_requeue = (item, 1)
+
+        lines.append("")
+        lines.append("[dim]Space/Enter to continue...[/]")
+        self.query_one("#result", Static).update("\n".join(lines))
+
+        self._awaiting_recall_grade = False
+        self._awaiting_advance = True
+
+    # ------------------------------------------------------------------
+    # Shared helpers
+    # ------------------------------------------------------------------
+
+    def _elapsed_days(self, card: dict) -> float:
+        """Compute elapsed days since last review for a card."""
+        if card["last_review"]:
+            try:
+                last_dt = datetime.fromisoformat(card["last_review"])
+                return (datetime.now(timezone.utc) - last_dt).total_seconds() / 86400
+            except (ValueError, TypeError):
+                pass
+        return 0.0
+
+    def _advance_after_grade(self) -> None:
+        """Advance to the next card after the user has seen grade feedback."""
+        self.total_reviewed += 1
+        self._current_item = None
+        self._decrement_delays()
+        self._show_next()
+
+    def _finish_review(self) -> None:
+        """Common cleanup after a generation review: bump counters and advance."""
+        self.total_reviewed += 1
+        self._awaiting_gen_grade = False
+        self._awaiting_recall_grade = False
+        self._current_item = None
+        self._decrement_delays()
+        self._show_next()
+
+    # ------------------------------------------------------------------
+    # Stats
+    # ------------------------------------------------------------------
+
+    def action_toggle_stats(self) -> None:
+        """Toggle the stats screen."""
+        if self.showing_stats:
+            self.showing_stats = False
+            if self._current_item is not None:
+                card = self._current_item.card
+                if card["phase"] == "generation":
+                    self._show_generation_card(self._current_item)
+                else:
+                    self._show_recall_card(self._current_item)
+            else:
+                self.query_one("#stats-display", Static).update("")
+                self._show_next()
+        else:
+            self._show_stats_screen()
+
+    def _show_stats_screen(self) -> None:
+        """Display aggregate generation card statistics."""
+        self.showing_stats = True
+        self._hide_input()
+        self.query_one("#card-header", Static).update("Generation Stats")
+        self.query_one("#question", Static).update("")
+        self.query_one("#masked-text", Static).update("")
+        self.query_one("#result", Static).update("")
+
+        lines: list[str] = []
+
+        # Card counts by phase
+        total = self.conn.execute(
+            "SELECT COUNT(*) FROM generation_cards"
+        ).fetchone()[0]
+        gen_count = self.conn.execute(
+            "SELECT COUNT(*) FROM generation_cards WHERE phase = 'generation'"
+        ).fetchone()[0]
+        recall_count = self.conn.execute(
+            "SELECT COUNT(*) FROM generation_cards WHERE phase = 'recall'"
+        ).fetchone()[0]
+
+        lines.append(f"Total cards: {total}")
+        lines.append(f"  Generation phase: {gen_count}")
+        lines.append(f"  Recall phase:     {recall_count}")
+
+        if total > 0:
+            grad_rate = recall_count / total
+            lines.append(f"  Graduation rate:  {grad_rate:.1%}")
+
+        lines.append("")
+
+        # Masking level distribution (generation cards only)
+        if gen_count > 0:
+            lines.append("--- Masking Level Distribution ---")
+            for lvl in range(MAX_MASKING_LEVEL + 1):
+                cnt = self.conn.execute(
+                    "SELECT COUNT(*) FROM generation_cards "
+                    "WHERE phase = 'generation' AND masking_level = ?",
+                    (lvl,),
+                ).fetchone()[0]
+                pct = cnt / gen_count if gen_count else 0
+                lines.append(f"  Level {lvl}: {cnt} ({pct:.0%})")
+            lines.append("")
+
+        # Recall grade distribution
+        recall_reviews = self.conn.execute(
+            "SELECT grade, COUNT(*) as cnt FROM generation_review_log "
+            "WHERE answer_mode = 'recall' AND grade IS NOT NULL "
+            "GROUP BY grade ORDER BY grade"
+        ).fetchall()
+        if recall_reviews:
+            total_recall_reviews = sum(r["cnt"] for r in recall_reviews)
+            lines.append("--- Recall Grade Distribution ---")
+            grade_names = {1: "Again", 2: "Hard", 3: "Good", 4: "Easy"}
+            for r in recall_reviews:
+                name = grade_names.get(r["grade"], str(r["grade"]))
+                pct = r["cnt"] / total_recall_reviews
+                lines.append(f"  {name}: {r['cnt']} ({pct:.0%})")
+            lines.append("")
+
+        # Review log summary
+        total_reviews = self.conn.execute(
+            "SELECT COUNT(*) FROM generation_review_log"
+        ).fetchone()[0]
+        gen_reviews = self.conn.execute(
+            "SELECT COUNT(*) FROM generation_review_log WHERE answer_mode = 'generation'"
+        ).fetchone()[0]
+        recall_review_count = self.conn.execute(
+            "SELECT COUNT(*) FROM generation_review_log WHERE answer_mode = 'recall'"
+        ).fetchone()[0]
+        lines.append(f"Total reviews: {total_reviews}")
+        lines.append(f"  Generation reviews: {gen_reviews}")
+        lines.append(f"  Recall reviews:     {recall_review_count}")
+
+        self.query_one("#stats-display", Static).update("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    """CLI entry point for the generation card review TUI."""
+    parser = argparse.ArgumentParser(
+        description="Generation card review (CFA LOS)"
+    )
+    parser.add_argument("deck", nargs="?", default=None, help="Deck name to filter cards")
+    parser.add_argument("--stats", action="store_true", help="Show stats screen only")
+    parser.add_argument("--limit", type=int, default=None, help="Maximum cards to review")
+    parser.add_argument("--db", default="data/srs.db", help="Path to SRS database")
+    args = parser.parse_args()
+
+    app = GenerationReviewApp(
+        db_path=args.db,
+        deck=args.deck,
+        limit=args.limit,
+        stats_only=args.stats,
+    )
+    app.run()
