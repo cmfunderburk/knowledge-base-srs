@@ -19,6 +19,8 @@ from textual.widgets import Footer, Header, Input, Static
 
 from knowledge_base.srs.fsrs import Grade, SchedulingResult, schedule
 from knowledge_base.srs.generation_db import (
+    get_all_generation_cards,
+    get_cards_by_readings,
     get_due_generation_cards,
     get_generation_phase_cards,
     init_generation_db,
@@ -33,7 +35,22 @@ from knowledge_base.srs.text_scoring import TokenResult, compare_tokens, tokeniz
 # Constants
 # ---------------------------------------------------------------------------
 
+def _parse_reading_spec(spec: str) -> list[str]:
+    """Parse a reading specifier like '5', '1-5', '1,3,5' into topic_id strings."""
+    topic_ids: list[str] = []
+    for part in spec.split(","):
+        part = part.strip()
+        if "-" in part:
+            start, end = part.split("-", 1)
+            for n in range(int(start), int(end) + 1):
+                topic_ids.append(str(n))
+        else:
+            topic_ids.append(part)
+    return topic_ids
+
+
 MAX_MASKING_LEVEL = 2
+PRACTICE_TYPEIN_LEVEL = 3    # virtual level for practice mode full type-in
 GRADUATION_PASSES = 2       # consecutive passes at max level to graduate
 GRADUATION_GAP = 5           # cards between graduation attempts
 REGRESSION_INTERVAL_THRESHOLD = 1.0  # days — regress if Again interval < this
@@ -157,12 +174,15 @@ class GenerationReviewApp(App):
         deck: str | None = None,
         limit: int | None = None,
         stats_only: bool = False,
+        practice: str | None = None,
     ) -> None:
         super().__init__()
         self.db_path = db_path
         self.deck_filter = deck
         self.card_limit = limit
         self.stats_only = stats_only
+        self.practice_mode = practice is not None
+        self.practice_spec = practice  # "all", "5", "1-5", etc.
         self.conn = None
         self.queue: deque[QueueItem] = deque()
         self.total_reviewed: int = 0
@@ -201,7 +221,11 @@ class GenerationReviewApp(App):
         if self.stats_only:
             self._show_stats_screen()
             return
-        self._build_queue()
+        if self.practice_mode:
+            self._build_practice_queue()
+            self.TITLE = "Massed Practice"
+        else:
+            self._build_queue()
         self.total_cards = len(self.queue)
         if not self.queue:
             self.query_one("#card-header", Static).update("No cards due")
@@ -215,6 +239,23 @@ class GenerationReviewApp(App):
     # ------------------------------------------------------------------
     # Queue management
     # ------------------------------------------------------------------
+
+    def _build_practice_queue(self) -> None:
+        """Build queue for massed practice: all cards for selected readings, in-memory only."""
+        if self.practice_spec == "all":
+            cards = get_all_generation_cards(self.conn, deck=self.deck_filter)
+        else:
+            topic_ids = _parse_reading_spec(self.practice_spec)
+            cards = get_cards_by_readings(
+                self.conn, topic_ids=topic_ids, deck=self.deck_filter,
+            )
+        # In practice mode, all cards start as generation at level 0 (in-memory only)
+        for c in cards:
+            practice_card = dict(c)  # copy so we don't affect DB-loaded state
+            practice_card["phase"] = "generation"
+            practice_card["masking_level"] = 0
+            practice_card["consecutive_max_passes"] = 0
+            self.queue.append(QueueItem(card=practice_card, delay=0))
 
     def _build_queue(self) -> None:
         """Build the initial session queue from due recall + generation cards."""
@@ -306,15 +347,33 @@ class GenerationReviewApp(App):
 
         remaining = len(self.queue) + 1  # +1 for current
         progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
-        header = (
-            f"{card['deck']} > {card['los_id']}  {progress}"
-            f"  (generation — level {level}/{MAX_MASKING_LEVEL})"
-        )
-        self.query_one("#card-header", Static).update(header)
-        self.query_one("#question", Static).update(card["question"])
 
-        masked = mask_text(card["answer"], level, card_id_str)
-        self.query_one("#masked-text", Static).update(masked)
+        if self.practice_mode and level >= PRACTICE_TYPEIN_LEVEL:
+            header = (
+                f"{card['deck']} > {card['los_id']}  {progress}"
+                f"  (practice — type-in)"
+            )
+            self.query_one("#card-header", Static).update(header)
+            self.query_one("#question", Static).update(card["question"])
+            self.query_one("#masked-text", Static).update("")
+        elif self.practice_mode:
+            header = (
+                f"{card['deck']} > {card['los_id']}  {progress}"
+                f"  (practice — level {level}/{MAX_MASKING_LEVEL})"
+            )
+            self.query_one("#card-header", Static).update(header)
+            self.query_one("#question", Static).update(card["question"])
+            masked = mask_text(card["answer"], level, card_id_str)
+            self.query_one("#masked-text", Static).update(masked)
+        else:
+            header = (
+                f"{card['deck']} > {card['los_id']}  {progress}"
+                f"  (generation — level {level}/{MAX_MASKING_LEVEL})"
+            )
+            self.query_one("#card-header", Static).update(header)
+            self.query_one("#question", Static).update(card["question"])
+            masked = mask_text(card["answer"], level, card_id_str)
+            self.query_one("#masked-text", Static).update(masked)
 
         self.query_one("#result", Static).update("")
         self.query_one("#stats-display", Static).update("")
@@ -464,9 +523,11 @@ class GenerationReviewApp(App):
         card = item.card
         now_str = datetime.now(timezone.utc).isoformat()
         level = card["masking_level"]
-
-        # Compute elapsed_days for review log
         elapsed_days = self._elapsed_days(card)
+
+        if self.practice_mode:
+            self._handle_practice_pass(item, card, level)
+            return
 
         if level < MAX_MASKING_LEVEL:
             # Advance masking level, re-queue
@@ -517,10 +578,38 @@ class GenerationReviewApp(App):
                 self._finish_review()
                 self._requeue(item, GRADUATION_GAP)
 
+    def _handle_practice_pass(
+        self, item: QueueItem, card: dict, level: int
+    ) -> None:
+        """Handle pass in practice mode — no DB writes, no graduation."""
+        if level < MAX_MASKING_LEVEL:
+            new_level = level + 1
+            card["masking_level"] = new_level
+            self._finish_review()
+            self._requeue(item, new_level + 1)
+        elif level == MAX_MASKING_LEVEL:
+            # Advance to type-in level (no masking)
+            card["masking_level"] = PRACTICE_TYPEIN_LEVEL
+            self._finish_review()
+            self._requeue(item, MAX_MASKING_LEVEL + 1)
+        else:
+            # At type-in level — success, re-queue at end of deck
+            self._finish_review()
+            self._requeue(item, len(self.queue))
+
     def _handle_generation_fail(self) -> None:
         """Handle a Fail grade for a generation-phase card."""
         item = self._current_item
         card = item.card
+
+        if self.practice_mode:
+            # In-memory only: reset to level 0, re-queue soon
+            card["masking_level"] = 0
+            card["consecutive_max_passes"] = 0
+            self._finish_review()
+            self._requeue(item, 1)
+            return
+
         now_str = datetime.now(timezone.utc).isoformat()
         level = card["masking_level"]
         elapsed_days = self._elapsed_days(card)
@@ -823,6 +912,11 @@ def main() -> None:
     parser.add_argument("--stats", action="store_true", help="Show stats screen only")
     parser.add_argument("--limit", type=int, default=None, help="Maximum cards to review")
     parser.add_argument("--db", default="data/srs.db", help="Path to SRS database")
+    parser.add_argument(
+        "--practice", metavar="READINGS", default=None,
+        help="Massed practice mode. Specify readings: 'all', '36', '1-5', '1,3,5'. "
+             "No persistent state changes — purely in-memory drill.",
+    )
     args = parser.parse_args()
 
     app = GenerationReviewApp(
@@ -830,5 +924,6 @@ def main() -> None:
         deck=args.deck,
         limit=args.limit,
         stats_only=args.stats,
+        practice=args.practice,
     )
     app.run()

@@ -317,6 +317,52 @@ def get_generation_phase_cards(
     return [dict(row) for row in rows]
 
 
+def get_cards_by_readings(
+    conn: sqlite3.Connection,
+    topic_ids: list[str],
+    deck: str | None = None,
+) -> list[dict]:
+    """Return all cards matching the given reading (topic_id) numbers.
+
+    Returns cards regardless of phase, in random order. Used by massed
+    practice mode which operates entirely in-memory.
+    """
+    if not topic_ids:
+        return []
+    placeholders = ", ".join("?" * len(topic_ids))
+    params: list = list(topic_ids)
+    deck_clause = ""
+    if deck is not None:
+        deck_clause = "AND deck = ?"
+        params.append(deck)
+    sql = f"""
+        SELECT * FROM generation_cards
+        WHERE topic_id IN ({placeholders})
+          {deck_clause}
+        ORDER BY RANDOM()
+    """
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_all_generation_cards(
+    conn: sqlite3.Connection,
+    deck: str | None = None,
+) -> list[dict]:
+    """Return all generation cards regardless of phase, in random order.
+
+    Used by massed practice 'all' mode.
+    """
+    params: list = []
+    deck_clause = ""
+    if deck is not None:
+        deck_clause = "WHERE deck = ?"
+        params.append(deck)
+    sql = f"SELECT * FROM generation_cards {deck_clause} ORDER BY RANDOM()"
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_due_generation_cards(
     conn: sqlite3.Connection,
     as_of: str,
