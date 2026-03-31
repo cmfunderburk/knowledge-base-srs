@@ -57,13 +57,20 @@ def score_point(user_point: float, true_answer: float, indicator_std: float) -> 
     """Score a single point-estimate response using relative error.
 
     Returns a discrete score based on how close the guess is relative to
-    the true answer's magnitude.
+    the true answer's magnitude. When the true answer is near zero (below
+    1% of indicator_std), falls back to absolute error normalized by
+    indicator_std, since relative error is meaningless at that scale.
 
     Returns:
-        1.0 if relative error < 5%, 0.5 if < 25%, else 0.0.
+        1.0 if error < 5%, 0.5 if < 25%, else 0.0.
     """
-    abs_answer = max(abs(true_answer), _EPSILON)
-    error = abs(true_answer - user_point) / abs_answer
+    # Near-zero answers: relative error explodes, so use absolute error
+    # normalized by indicator_std as the natural scale for the indicator.
+    if indicator_std > 0 and abs(true_answer) < indicator_std * 0.01:
+        error = abs(true_answer - user_point) / indicator_std
+    else:
+        abs_answer = max(abs(true_answer), _EPSILON)
+        error = abs(true_answer - user_point) / abs_answer
     if error < 0.05:
         return 1.0
     if error < 0.25:
