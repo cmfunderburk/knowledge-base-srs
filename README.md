@@ -1,10 +1,14 @@
 # Knowledge Base
 
-Calibration training system for building base-rate knowledge of socioeconomic, financial, and development indicators. The primary interface is a TUI-based spaced repetition app where users estimate 95% confidence intervals or point predictions for real-world quantities — building calibrated order-of-magnitude intuitions relevant to GJOpen/Metaculus-style forecasting.
+A TUI-based spaced repetition system with two review modes:
 
-An [Anki with Uncertainty](https://github.com/Sage-Future/anki-with-uncertainty) export pipeline is maintained for sharing and backup.
+- **Calibration review** — estimate 95% confidence intervals or point predictions for real-world socioeconomic, financial, and development indicators. Interval scoring treats the user's response as an implied distributional forecast, using answer-normalized log-likelihood to modulate review intervals via a continuous FSRS model. Designed to build calibrated order-of-magnitude intuitions relevant to GJOpen/Metaculus-style forecasting.
 
-## Decks
+- **Generation review** — type-in recall of factual statements (currently CFA Level I LOS), progressing through letter-level masking stages before graduating to standard FSRS v6 scheduling. Supports massed practice (transient, no DB writes) and ordered practice (ring-buffer drilling) alongside the persistent global review queue.
+
+An [Anki with Uncertainty](https://github.com/Sage-Future/anki-with-uncertainty) export pipeline is maintained for the calibration decks as a sharing and backup mechanism.
+
+## Calibration Decks
 
 Eight decks spanning ~50 indicators across 47 countries and 50 major cities.
 
@@ -91,28 +95,56 @@ All indicators use a standardized index scale (-2.5 to +2.5).
 
 ### Descriptive Statistics
 
-Cross-cutting deck with distribution summary cards (mean, median, SD, min, max with entities) for each indicator across all source decks. Uses Enhanced Cloze note type.
+Cross-cutting deck with distribution summary cards (mean, median, SD, min, max with entities) for each indicator across all source decks.
 
 ---
 
-**Data sources:** World Bank WDI (API) for the four thematic decks, GHS-UCDB for urban areas. Each card includes reference-class context (world average + regional average) to support Fermi-style reasoning.
+**Data sources:** World Bank WDI (API) for the thematic decks, GHS-UCDB for urban areas. Each card includes reference-class context (world average + regional average) to support Fermi-style reasoning.
 
-## SRS Review System
+## Generation Decks
 
-The primary interface is a Textual TUI with score-driven spaced repetition scheduling.
+Currently covers CFA Level I Learning Outcome Statements (225 statements across 48 readings). The generation review system is domain-agnostic and designed to expand to other factual recall content.
 
-- **Scoring:** Answer-normalized log-likelihood. The user's interval is treated as an implied 95% CI; the score `S = -z²/2 - ln(CoV)` is transformed via logistic to [0,1]. No indicator standard deviation needed — scoring depends only on the interval bounds and true answer. Point predictions use discrete thresholds.
-- **Scheduling:** Simplified FSRS model — good scores lower the desired retention target, producing longer review intervals. All cards use FSRS directly (no learning/review state machine). New cards are presented in random order for interleaved practice.
-- **Statistics:** Brier score, calibration rate, score distribution histograms, point prediction hit rates — viewable per deck or per indicator.
+**Review lifecycle:**
+1. **Generation phase** — cards progress through 3 masking levels (30%, 60%, first-letter-only), with queue-based spacing between presentations
+2. **Graduation** — 2 consecutive passes at maximum masking promotes a card to recall phase
+3. **Recall phase** — standard FSRS v6 with Again/Hard/Good/Easy grading; cards that lapse with interval < 24h demote back to generation at level 2
+
+**Practice modes** (transient, no DB writes):
+- `--practice` — massed practice filtered by reading number(s); cards progress through masking then re-queue at end of deck
+- `--ordered-practice` — ring-buffer drilling in fixed LOS order; pass/fail affects masking level but not queue position
+
+## SRS Scheduling
+
+### Calibration (continuous FSRS)
+
+A continuous variant of FSRS v6 where score in [0,1] maps directly to stability updates — no binary lapse/success threshold. Key properties:
+
+- **Power-law forgetting curve:** `R(t,S) = (1 + FACTOR*t/S)^DECAY`
+- **Sigmoid recall/lapse blend:** smoothly interpolates between recall and lapse stability formulas based on score
+- **Initial stability** scales exponentially with score (~10 min at score=0, ~6.9 days at score=1.0)
+- **23 tunable parameters**, all documented with role and rationale
+
+### Generation (standard FSRS v6)
+
+Published default weights `W[0..18]`, 4-button discrete grading. Completely independent from the calibration scheduler.
+
+### Statistics
+
+Brier score, calibration rate, score distribution histograms, point prediction hit rates — viewable per deck or per indicator.
 
 ## Architecture
 
-Three-stage pipeline: `fetch` → CSVs → `srs-import` → SQLite → `review` TUI
-
 ```
-fetch-data / fetch-urban-data / fetch-desc-stats → data/{deck}/*.csv
-    ↓                                                    ↓
-srs-import → data/srs.db → review TUI            build-deck → .apkg
+config.py (DECKS registry, ENTITIES)
+    |
+    v
+fetch-data / fetch-urban-data / fetch-desc-stats --> data/{deck}/*.csv
+    |                                                      |
+    v                                                      v
+srs-import --> data/srs.db --> review TUI           build-deck --> .apkg
+
+data/cfa_level1_los.json --> gen-import --> data/srs.db --> review-gen TUI
 ```
 
 The CSV intermediary makes manual corrections straightforward — edit a CSV, re-run `srs-import` or `build-deck`.
@@ -122,63 +154,63 @@ The CSV intermediary makes manual corrections straightforward — edit a CSV, re
 ```bash
 uv sync                              # install dependencies
 
-# Fetch data
-uv run fetch-data development        # World Bank → data/development/*.csv
+# Fetch calibration data
+uv run fetch-data development        # World Bank --> data/development/*.csv
 uv run fetch-data tech_adoption
 uv run fetch-data conflict_security
 uv run fetch-data finance
 uv run fetch-data education
 uv run fetch-data governance
-uv run fetch-urban-data              # GHS-UCDB → data/urban_areas/*.csv
-uv run fetch-desc-stats              # compute stats → data/descriptive_stats/*.csv
+uv run fetch-urban-data              # GHS-UCDB --> data/urban_areas/*.csv
+uv run fetch-desc-stats              # compute stats --> data/descriptive_stats/*.csv
 
-# SRS review system
-uv run srs-import --all              # import all decks → data/srs.db
+# Calibration review
+uv run srs-import --all              # import all decks --> data/srs.db
 uv run review                        # launch TUI review session
 uv run review --stats                # stats screen only
 
-# Anki export (sharing/backup)
-uv run build-deck development        # → knowledge_base.apkg
-uv run build-deck tech_adoption      # → knowledge_base_tech_adoption.apkg
+# Generation review (CFA LOS)
+uv run gen-import                    # import LOS --> data/srs.db
+uv run review-gen                    # launch TUI review session
+uv run review-gen --practice 36      # massed practice: single reading
+uv run review-gen --ordered-practice all  # ordered practice: all readings
 
-uv run pytest                        # 218 tests
+# Anki export (sharing/backup)
+uv run build-deck development        # --> knowledge_base.apkg
+
+uv run pytest                        # 391 tests
 ```
 
 Anki export requires the [Anki with Uncertainty](https://www.quantifiedintuitions.org/anki-with-uncertainty) add-on (code `694813595`).
-
-## Tag Schema
-
-Cards are tagged for filtering:
-
-- `category::development`, `category::health`, `category::energy`, `category::geography`, `category::technology`, `category::military`, `category::security`, `category::macro`, `category::financial_system`, `category::education`, `category::governance`
-- `indicator::gdp_pc_ppp`, `indicator::internet_users`, etc.
-- `entity::india`, `entity::sub_saharan_africa`, etc.
-- `entity_type::region`, `entity_type::major`, `entity_type::long_tail`
-- `era::1960`, `era::1990`, `era::2000`, `era::2010`, `era::current`
-- `source_deck::development`, etc. (descriptive stats cards only)
 
 ## Project Structure
 
 ```
 src/knowledge_base/
-    config.py            # DECKS registry, entity lists, indicator metadata
-    card_gen.py          # Question/answer/tag generation (shared by build_deck + srs)
-    wb_api.py            # World Bank API client
-    ghsl.py              # GHS-UCDB GeoPackage reader
-    fetch_data.py        # World Bank → data/<deck>/*.csv
-    fetch_urban_data.py  # GHS-UCDB → data/urban_areas/*.csv
-    fetch_desc_stats.py  # Compute descriptive statistics → data/descriptive_stats/*.csv
-    desc_stats.py        # Statistics computation helper
-    build_deck.py        # CSV → .apkg (Anki export)
+    config.py              # DECKS registry, entity lists, indicator metadata
+    card_gen.py            # Question/answer/tag generation (shared by build_deck + srs)
+    wb_api.py              # World Bank API client
+    ghsl.py                # GHS-UCDB GeoPackage reader
+    fetch_data.py          # World Bank --> data/<deck>/*.csv
+    fetch_urban_data.py    # GHS-UCDB --> data/urban_areas/*.csv
+    fetch_desc_stats.py    # Compute descriptive statistics
+    desc_stats.py          # Statistics computation helper
+    build_deck.py          # CSV --> .apkg (Anki export)
     srs/
-        scoring.py       # Answer-normalized log-likelihood interval scoring, point prediction scoring
-        scheduler.py     # Simplified FSRS scheduling (DSR model)
-        db.py            # SQLite schema, CRUD, migrations
-        importer.py      # CSV → SQLite card import
-        stats.py         # Calibration metrics and score distributions
-        tui.py           # Textual TUI for review sessions
+        scoring.py         # Log-likelihood interval scoring, point prediction scoring
+        scheduler.py       # Continuous FSRS scheduling (calibration mode)
+        fsrs.py            # Standard FSRS v6 scheduling (generation mode)
+        db.py              # SQLite schema, CRUD, migrations
+        importer.py        # CSV --> SQLite card import (calibration)
+        generation_db.py   # Generation card tables and CRUD
+        generation_import.py  # JSON LOS --> SQLite card import
+        generation_tui.py  # TUI for generation card review
+        masking.py         # Letter-level masking algorithm (3 levels)
+        text_scoring.py    # Token-level Levenshtein comparison
+        stats.py           # Calibration metrics and score distributions
+        tui.py             # TUI for calibration review sessions
 data/
-    development/         # Curated CSVs (gitignored, regenerated by fetch commands)
+    development/           # Curated CSVs (gitignored, regenerated by fetch commands)
     tech_adoption/
     conflict_security/
     finance/
@@ -186,6 +218,18 @@ data/
     governance/
     urban_areas/
     descriptive_stats/
-    srs.db               # Personal review state (gitignored)
-tests/                   # 218 tests
+    cfa_level1_los.json    # CFA Level I LOS data (checked in)
+    srs.db                 # Personal review state (gitignored)
+tests/                     # 391 tests
 ```
+
+## Tag Schema
+
+Calibration cards are tagged for filtering:
+
+- `category::development`, `category::health`, `category::energy`, etc.
+- `indicator::gdp_pc_ppp`, `indicator::internet_users`, etc.
+- `entity::india`, `entity::sub_saharan_africa`, etc.
+- `entity_type::region`, `entity_type::major`, `entity_type::long_tail`
+- `era::1960`, `era::1990`, `era::2000`, `era::2010`, `era::current`
+- `source_deck::development`, etc. (descriptive stats cards only)
