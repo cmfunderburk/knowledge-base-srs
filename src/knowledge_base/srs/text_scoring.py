@@ -1,6 +1,7 @@
-"""Token-level Levenshtein text comparison for generation card feedback display.
+"""Token-level text comparison for generation card feedback display.
 
-Used to show users which words they got right/wrong when typing LOS statements.
+Uses difflib.SequenceMatcher for proper alignment — handles insertions,
+deletions, and substitutions mid-sequence without cascading misalignment.
 Display only — not used for scheduling.
 """
 
@@ -8,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 _PUNCT_RE = re.compile(r"[.,;:!?()\"\'\[\]]+")
 
@@ -42,7 +44,7 @@ def levenshtein(a: str, b: str) -> int:
 def tokenize(text: str) -> list[str]:
     """Split text into lowercase tokens with punctuation stripped.
 
-    Uses re.compile(r"[.,;:!?()\\"'\\[\\]]+") for punctuation removal.
+    Uses _PUNCT_RE for punctuation removal.
     Empty input returns empty list. Tokens that become empty after
     punctuation stripping are excluded.
     """
@@ -75,40 +77,60 @@ def compare_tokens(
     typed_tokens: list[str],
     correct_tokens: list[str],
 ) -> list[TokenResult]:
-    """Compare typed tokens against correct tokens sequentially.
+    """Compare typed tokens against correct tokens using diff alignment.
 
-    Per-token logic:
-    - exact match → "exact"
-    - Levenshtein distance == 1 → "close"
-    - otherwise → "wrong"
-    - extra typed words (beyond length of correct) → "extra"
-    - missing correct words (typed shorter than correct) → "missing"
+    Uses SequenceMatcher to find the best alignment between typed and
+    correct token sequences, then classifies each position:
+    - Aligned and matching exactly → "exact"
+    - Aligned and Levenshtein distance == 1 → "close"
+    - Aligned but different → "wrong"
+    - Present in typed but not correct → "extra"
+    - Present in correct but not typed → "missing"
 
-    Returns list[TokenResult] with one entry per token position,
-    covering the full length of whichever list is longer.
+    This handles insertions and deletions mid-sequence without cascading
+    misalignment (unlike naive positional comparison).
     """
     results: list[TokenResult] = []
-    len_typed = len(typed_tokens)
-    len_correct = len(correct_tokens)
-    common = min(len_typed, len_correct)
+    matcher = SequenceMatcher(None, typed_tokens, correct_tokens)
 
-    for i in range(common):
-        typed = typed_tokens[i]
-        expected = correct_tokens[i]
-        if typed == expected:
-            status = "exact"
-        elif levenshtein(typed, expected) <= 1:
-            status = "close"
-        else:
-            status = "wrong"
-        results.append(TokenResult(expected=expected, typed=typed, status=status))
-
-    # Extra typed words beyond the correct sequence
-    for i in range(common, len_typed):
-        results.append(TokenResult(expected="", typed=typed_tokens[i], status="extra"))
-
-    # Missing correct words not covered by typed sequence
-    for i in range(common, len_correct):
-        results.append(TokenResult(expected=correct_tokens[i], typed="", status="missing"))
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                results.append(TokenResult(
+                    expected=correct_tokens[j1 + k],
+                    typed=typed_tokens[i1 + k],
+                    status="exact",
+                ))
+        elif tag == "replace":
+            # Pair up replacements; excess on either side is extra/missing
+            typed_slice = typed_tokens[i1:i2]
+            correct_slice = correct_tokens[j1:j2]
+            pairs = max(len(typed_slice), len(correct_slice))
+            for k in range(pairs):
+                if k >= len(correct_slice):
+                    results.append(TokenResult(
+                        expected="", typed=typed_slice[k], status="extra",
+                    ))
+                elif k >= len(typed_slice):
+                    results.append(TokenResult(
+                        expected=correct_slice[k], typed="", status="missing",
+                    ))
+                else:
+                    t, e = typed_slice[k], correct_slice[k]
+                    if levenshtein(t, e) <= 1:
+                        status = "close"
+                    else:
+                        status = "wrong"
+                    results.append(TokenResult(expected=e, typed=t, status=status))
+        elif tag == "insert":
+            for k in range(j1, j2):
+                results.append(TokenResult(
+                    expected=correct_tokens[k], typed="", status="missing",
+                ))
+        elif tag == "delete":
+            for k in range(i1, i2):
+                results.append(TokenResult(
+                    expected="", typed=typed_tokens[k], status="extra",
+                ))
 
     return results
