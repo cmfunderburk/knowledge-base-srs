@@ -325,8 +325,10 @@ def get_due_generation_cards(
 ) -> list[dict]:
     """Return recall-phase cards whose due date is on or before ``as_of``.
 
-    Only cards with ``phase = 'recall'`` and ``due <= as_of`` are returned,
-    ordered by due date ascending (oldest overdue first).
+    Only cards with ``phase = 'recall'``, ``reps > 0``, and ``due <= as_of``
+    are returned, ordered by due date ascending (oldest overdue first).
+    Newly graduated cards must have ``reps`` and ``due`` set by the
+    graduation logic before they appear here.
 
     Parameters
     ----------
