@@ -27,14 +27,19 @@ uv run review --limit N              # cap session size
 uv run review --difficulty-modifier  # enable outlier difficulty bonus
 
 # Generation cards (CFA LOS)
-uv run gen-import                # import LOS → data/srs.db
-uv run review-gen [deck]         # launch generation card review TUI
-uv run review-gen --stats        # stats screen only
+uv run gen-import                       # import LOS → data/srs.db
+uv run review-gen [deck]                # launch generation card review TUI
+uv run review-gen --stats               # stats screen only
+uv run review-gen --limit N             # cap session size
+uv run review-gen --practice 36         # massed practice: single reading
+uv run review-gen --practice 1-5        # massed practice: reading range
+uv run review-gen --practice 1,3,5      # massed practice: specific readings
+uv run review-gen --practice all        # massed practice: all readings
 
 # Anki export (sharing/backup)
 uv run build-deck <deck_key>         # generate .apkg from CSVs
 
-uv run pytest                        # 218 tests
+uv run pytest                        # 377 tests
 ```
 
 Available deck keys: `development`, `tech_adoption`, `conflict_security`, `finance`, `education`, `governance`, `urban_areas`, `descriptive_stats`
@@ -110,6 +115,14 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 - **Intra-session repeat**: cards with computed interval < `INTRA_SESSION_THRESHOLD` (0.05 days) are re-queued within the session.
 - **Difficulty modifier** is off by default (`--difficulty-modifier` to enable).
 - **23 tunable parameters** in `scheduler.py` — all documented with role and rationale. See `docs/superpowers/specs/2026-03-29-continuous-fsrs-scheduler-design.md` for full spec.
+
+### Generation cards (CFA LOS)
+- **Two review modes**: global review (masking → graduation → FSRS) and massed practice (transient, no DB writes)
+- **Global review lifecycle**: generation phase (3 masking levels, queue-based spacing) → graduation (2 consecutive passes at max masking) → recall phase (standard FSRS v6 with Again/Hard/Good/Easy)
+- **Massed practice** (`--practice`): in-memory only, no persistent state changes. Cards progress through masking levels → full type-in, then re-queue at end of deck. Filter by reading number(s).
+- **Standard FSRS v6** (`fsrs.py`): completely independent from `scheduler.py`. Published default weights `W[0..18]`, 4-button discrete grading. Used only for recall phase.
+- **Regression rule**: recall-phase cards that get Again with interval < 24h demote back to generation at level 2.
+- **LOS data**: `data/cfa_level1_los.json` — 225 statements across 48 CFA Level I readings. Not gitignored (checked in).
 
 ### Anki export
 - **Model ID `1677887272395`** must be reused — it's the Interval note type from the add-on

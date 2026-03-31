@@ -228,12 +228,21 @@ def schedule(card_state, grade, now) -> SchedulingResult:
 ### Entry Point
 
 ```bash
-uv run review-gen [deck]        # launch generation card review
-uv run review-gen --stats       # stats screen
-uv run review-gen --limit N     # cap session size
+uv run review-gen [deck]              # launch generation card review (global FSRS pipeline)
+uv run review-gen --stats             # stats screen
+uv run review-gen --limit N           # cap session size
+uv run review-gen --practice 36       # massed practice: single reading
+uv run review-gen --practice 1-5      # massed practice: reading range
+uv run review-gen --practice all      # massed practice: all readings
 ```
 
-### Session Composition
+### Two Modes
+
+**Global review** (default): the full masking → graduation → FSRS pipeline. Persistent state changes. Long-term retention.
+
+**Massed practice** (`--practice`): transient drill on selected readings. No DB writes — all state in-memory. Cards progress through masking levels → full type-in, then re-queue at end of deck. User drills until they quit (Ctrl+Q). Useful as warmup before reading chapters or as a review pass when feeling rusty.
+
+### Session Composition (Global Review)
 
 A session contains both generation-phase and recall-phase cards:
 - **Recall-phase cards** are loaded from DB: overdue first (by `due` date), then new cards
