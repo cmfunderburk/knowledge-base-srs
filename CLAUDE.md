@@ -26,6 +26,11 @@ uv run review --stats                # stats screen only
 uv run review --limit N              # cap session size
 uv run review --difficulty-modifier  # enable outlier difficulty bonus
 
+# Generation cards (CFA LOS)
+uv run gen-import                # import LOS → data/srs.db
+uv run review-gen [deck]         # launch generation card review TUI
+uv run review-gen --stats        # stats screen only
+
 # Anki export (sharing/backup)
 uv run build-deck <deck_key>         # generate .apkg from CSVs
 
@@ -66,6 +71,14 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 - `stats.py` — Brier score, calibration rate, score distribution, point prediction hit rate
 - `tui.py` — Textual TUI for review sessions and stats display
 
+### Generation cards (`srs/`)
+- `fsrs.py` — standard FSRS v6 scheduler (4-button: Again/Hard/Good/Easy), independent from `scheduler.py`
+- `generation_db.py` — `generation_cards` and `generation_review_log` tables, CRUD
+- `generation_import.py` — JSON LOS data → SQLite card population
+- `generation_tui.py` — Textual TUI for generation card review (separate from `tui.py`)
+- `masking.py` — letter-level masking algorithm (3 levels: 30%, 60%, first-letter-only)
+- `text_scoring.py` — token-level Levenshtein comparison for feedback display
+
 ### Anki export
 - `build_deck.py` — reads CSVs, generates questions/notes/tags, writes `.apkg` via genanki
 
@@ -82,7 +95,7 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 
 ### SRS scoring
 - **Answer-normalized log-likelihood**: interval scoring uses `S = -z²/2 - ln(CoV)` transformed via logistic (`center=2.0, scale=1.0`). No `indicator_std` parameter — depends only on interval bounds and true answer.
-- **Point prediction scoring**: relative error `|guess - answer| / |answer|`. Thresholds: <5% perfect (1.0), <25% close (0.5), else miss (0.0). `indicator_std` parameter is accepted but unused for scoring (still needed by `apply_difficulty_modifier`).
+- **Point prediction scoring**: relative error `|guess - answer| / |answer|`. Thresholds: <5% perfect (1.0), <25% close (0.5), else miss (0.0). Near-zero fallback: when `|answer| < 1% of indicator_std`, uses absolute error normalized by `indicator_std` instead (relative error is meaningless at that scale).
 - **All values stored in display units** (divided by scale_factor). Scoring operates directly on stored values without conversion.
 
 ### SRS scheduling (continuous FSRS)
