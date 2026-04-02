@@ -1,0 +1,8 @@
+{
+    "name": "Enhanced Cloze Type-In",
+    "package": "enhanced_cloze_type_in",
+    "author": "cmf (forked from RisingOrange)",
+    "version": "1.0.0",
+    "homepage": "",
+    "conflicts": []
+}

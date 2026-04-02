@@ -1,0 +1,602 @@
+<!-- VERSION 1.0 -->
+<script>
+    var scrollToClozeOnToggle = true
+    var animateScroll = true
+    var showHintsForPseudoClozes = true
+    var underlineRevealedPseudoClozes = false
+    var revealPseudoClozesByDefault = false
+    var swapLeftAndRightBorderActions = false
+    var revealNextPseudoClozeShortcut = "N"
+    var revealAllPseudoClozesShortcut = "Shift+N"
+</script>
+<!-- CONFIG END -->
+
+<div id="card-body">
+    <div id="main-section" class="content">
+        <span id="enhanced-clozes"></span>
+    </div>
+    <br>
+    <br>
+    <hr>
+    <br>
+    <p class="" style="margin: 5.5px;"></p>
+    <div>
+        {{#Note}}
+        <div id="note-section">
+            <div id="note-header" class="header header-red" onclick="showNextElement(this)">
+                Note
+            </div>
+            <div id="note" class="content" style="display:none">
+                {{edit:Note}}
+            </div>
+        </div>
+        <br>
+        <p class="" style="margin: 5.5px;"></p>
+        {{/Note}}
+
+        {{#Mnemonics}}
+        <div id="mnemonics-section">
+            <div id="mnemonics-header" class="header header-green" onclick="showNextElement(this)">
+                Mnemonics
+            </div>
+            <div id="mnemonics" class="content" style="display:none">
+                {{edit:Mnemonics}}
+            </div>
+        </div>
+        <br>
+        <p class="" style="margin: 5.5px;"></p>
+        {{/Mnemonics}}
+
+        {{#Extra}}
+        <div id="extra-section">
+            <div id="extra-header" class="header header-yellow" onclick="showNextElement(this)">
+                Extra
+            </div>
+            <div id="extra" class="content" style="display:none">
+                {{edit:Extra}}
+            </div>
+        </div>
+        <br>
+        <p class="" style="margin: 5.5px;"></p>
+        {{/Extra}}
+
+        <div id="info-section">
+            <div id="info-header" class="header header-blue" onclick="showNextElement(this)">
+                Information
+            </div>
+            <div id="info" class="content" style="display:none">
+                <div>
+                    <b>Deck</b>: <br><i>{{Deck}}</i>
+                </div>
+                <br>
+                {{#Tags}}
+                <div id="tags">
+                    <b>Tags</b>: <br><i>{{Tags}}</i>
+                </div>
+                {{/Tags}}
+            </div>
+        </div>
+        <br>
+
+        <div id="functional-elements">
+            <div id="show-one-cloze-left"></div>
+            <div id="show-one-cloze-right"></div>
+            <div id="no-more-cloze"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ENHANCED_CLOZE_TYPE_IN -->
+<span id="enhanced-cloze-content" style="display:none">{{Content}}</span>
+<span style="display:none;" id="edit-clozes">{{edit:cloze:Content}}</span>
+
+<span style="display:none">{{cloze:Content}}</span>
+<span style="display:none">{{cloze:Cloze99}}</span>
+
+<script>
+    var enhancedClozesData = {
+        "clozeId": [],
+        "answers": [],
+        "hints": [],
+    }
+
+    async function enhancedClozesMain() {
+
+        const clozeRegex = /{(?:){c(\d+)::([\W\w]*?)(?:::([\W\w]*?))?}}/g
+
+        await maybeInjectJquery()
+        defineEnhancedClozeAddEventListener()
+        prepareEnhancedClozesData()
+        prepareEnhancedClozesHTML()
+        maybeScrollToFirstInput()
+        setupPseudoClozeEvents()
+        setupTypeInEvents()
+        insertStyling()
+
+        function prepareEnhancedClozesData() {
+            var content = document.getElementById("enhanced-cloze-content").innerHTML
+            var match = clozeRegex.exec(content);
+            while (match != null) {
+                enhancedClozesData["clozeId"].push(match[1])
+                enhancedClozesData["answers"].push(match[2])
+                enhancedClozesData["hints"].push(match[3] !== undefined ? match[3] : "")
+                match = clozeRegex.exec(content);
+            }
+        }
+
+        function prepareEnhancedClozesHTML() {
+            var ord =
+                `{{#c1}}1{{/c1}}{{#c2}}2{{/c2}}{{#c3}}3{{/c3}}{{#c4}}4{{/c4}}{{#c5}}5{{/c5}}{{#c6}}6{{/c6}}{{#c7}}7{{/c7}}{{#c8}}8{{/c8}}{{#c9}}9{{/c9}}{{#c10}}10{{/c10}}{{#c11}}11{{/c11}}{{#c12}}12{{/c12}}{{#c13}}13{{/c13}}{{#c14}}14{{/c14}}{{#c15}}15{{/c15}}{{#c16}}16{{/c16}}{{#c17}}17{{/c17}}{{#c18}}18{{/c18}}{{#c19}}19{{/c19}}{{#c20}}20{{/c20}}{{#c21}}21{{/c21}}{{#c22}}22{{/c22}}{{#c23}}23{{/c23}}{{#c24}}24{{/c24}}{{#c25}}25{{/c25}}{{#c26}}26{{/c26}}{{#c27}}27{{/c27}}{{#c28}}28{{/c28}}{{#c29}}29{{/c29}}{{#c30}}30{{/c30}}{{#c31}}31{{/c31}}{{#c32}}32{{/c32}}{{#c33}}33{{/c33}}{{#c34}}34{{/c34}}{{#c35}}35{{/c35}}{{#c36}}36{{/c36}}{{#c37}}37{{/c37}}{{#c38}}38{{/c38}}{{#c39}}39{{/c39}}{{#c40}}40{{/c40}}{{#c41}}41{{/c41}}{{#c42}}42{{/c42}}{{#c43}}43{{/c43}}{{#c44}}44{{/c44}}{{#c45}}45{{/c45}}{{#c46}}46{{/c46}}{{#c47}}47{{/c47}}{{#c48}}48{{/c48}}{{#c49}}49{{/c49}}{{#c50}}50{{/c50}}`
+            ord = ord.trim()
+
+            var content = document.getElementById("enhanced-cloze-content").innerHTML
+            var html = ""
+            var ctr = 0
+            var prevLastIndex = 0
+            match = clozeRegex.exec(content);
+            while (match !== null) {
+                var startIdx = clozeRegex.lastIndex - match[0].length
+                html += content.slice(prevLastIndex, startIdx)
+
+                var isGenuine = ord == enhancedClozesData["clozeId"][ctr]
+
+                if (isGenuine) {
+                    // TYPE-IN: render as input field
+                    var hint = enhancedClozesData["hints"][ctr]
+                    var placeholder = hint ? escapeAttr(hint) : ""
+                    html += `<input type="text" class="cloze-input" data-index="${ctr}" `
+                    html += `data-cid="${enhancedClozesData["clozeId"][ctr]}" `
+                    html += `placeholder="${placeholder}" autocomplete="off" autocorrect="off" `
+                    html += `autocapitalize="off" spellcheck="false">`
+                } else {
+                    // PSEUDO-CLOZE: render as clickable span (unchanged)
+                    html +=
+                        `<span class="pseudo-cloze" show-state="hint" cid="${enhancedClozesData["clozeId"][ctr]}" index="${ctr}">${enhancedClozesData["hints"][ctr]}</span>`
+                }
+
+                prevLastIndex = clozeRegex.lastIndex
+                match = clozeRegex.exec(content);
+                ctr += 1
+            }
+            html += content.slice(prevLastIndex)
+
+            var enhDiv = document.getElementById("enhanced-clozes")
+            enhDiv.innerHTML = html
+
+            // Initialize pseudo-cloze display
+            $('.pseudo-cloze').each(function (index, elem) {
+                toggleCloze(elem, 'hint')
+            });
+
+            $('.pseudo-cloze').css('cursor', 'pointer')
+            $('.pseudo-cloze').addClass('disable-select')
+            $('#show-one-cloze-left').css('cursor', 'pointer')
+            $('#show-one-cloze-right').css('cursor', 'pointer')
+            $('#show-one-cloze-left').addClass('disable-select')
+            $('#show-one-cloze-right').addClass('disable-select')
+        }
+
+        function maybeScrollToFirstInput() {
+            var firstInput = $('.cloze-input').first()
+            if (firstInput.length) {
+                if (scrollToClozeOnToggle) {
+                    $('html, body').animate({
+                        scrollTop: firstInput.offset().top - 60
+                    }, animateScroll ? 500 : 0);
+                }
+                // Focus first input field
+                setTimeout(function () {
+                    firstInput.focus()
+                }, 100)
+            }
+        }
+
+        function setupPseudoClozeEvents() {
+            if (typeof firstTimeLoadingEnhancedCloze === 'undefined') {
+                firstTimeLoadingEnhancedCloze = false
+
+                $(document).on('click', '.pseudo-cloze', function (event) {
+                    toggleCloze(event.target, 'toggle');
+                });
+
+                $(document).on('click', '#show-one-cloze-left', function (event) {
+                    revealOneClozeOfAType(swapLeftAndRightBorderActions ? "pseudo" : "pseudo");
+                });
+
+                $(document).on('click', '#show-one-cloze-right', function (event) {
+                    revealOneClozeOfAType(swapLeftAndRightBorderActions ? "pseudo" : "pseudo");
+                });
+            }
+
+            setupPseudoClozeKeyEvents()
+        }
+
+        function setupPseudoClozeKeyEvents() {
+            window.enhancedClozeAddEventListener("keydown", (event) => {
+                // Only process shortcuts when not focused on an input
+                if (document.activeElement && document.activeElement.classList.contains('cloze-input')) {
+                    return
+                }
+                if (shortcutMatcher(revealNextPseudoClozeShortcut)(event)) {
+                    revealOneClozeOfAType("pseudo");
+                }
+                if (shortcutMatcher(revealAllPseudoClozesShortcut)(event)) {
+                    toggleAllClozesOfAType("pseudo");
+                }
+            })
+        }
+
+        function setupTypeInEvents() {
+            // Enter key checks the focused input
+            $(document).on('keydown', '.cloze-input', function (event) {
+                if (event.key === 'Enter') {
+                    event.preventDefault()
+                    checkClozeInput(this)
+                }
+            });
+
+            // Tab to next unchecked input
+            $(document).on('keydown', '.cloze-input', function (event) {
+                if (event.key === 'Tab') {
+                    event.preventDefault()
+                    var nextInput = $(this).nextAll('.cloze-input').first()
+                    if (nextInput.length === 0) {
+                        // Wrap around to the first unchecked input
+                        nextInput = $('.cloze-input').first()
+                    }
+                    if (nextInput.length) {
+                        nextInput.focus()
+                    }
+                }
+            });
+        }
+
+
+        function insertStyling() {
+            if (document.getElementById("enhanced-clozes-style")) return;
+
+            mainSection = document.getElementById("main-section")
+            style = document.createElement("style")
+            style.id = "enhanced-clozes-style"
+            style.innerHTML = `
+                .disable-select {
+                    -webkit-touch-callout: none;
+                    user-select: none;
+                }
+            `
+
+            if (underlineRevealedPseudoClozes) {
+                style.innerHTML += `
+                .pseudo-cloze {
+                    border-bottom: 1px solid #4285f4;
+                    padding-bottom: 1px;
+                }`
+            }
+            mainSection.insertBefore(style, mainSection.children[0])
+        }
+
+        function revealOneClozeOfAType(clozeType) {
+            if (!$(`.${clozeType}-cloze[show-state="hint"]`).length) {
+                $('#no-more-cloze').animate({
+                    display: "toggle",
+                }, 500);
+                return
+            }
+
+            var hiddenClozes = $(`.${clozeType}-cloze[show-state="hint"]`)
+            if (hiddenClozes.length != 0) {
+                revealCloze(hiddenClozes[0]);
+            }
+        }
+
+        function toggleAllClozesOfAType(clozeType) {
+            var allRevealed = !$(`.${clozeType}-cloze[show-state="hint"`).length
+            $(`.${clozeType}-cloze`).each(function (index, elem) {
+                toggleCloze(elem, allRevealed ? "hint" : "answer");
+            })
+        }
+
+        function revealCloze(elem) {
+            if (!isVisible(elem)) {
+                maybeScrollToCloze(elem);
+            } else {
+                toggleCloze(elem, 'answer');
+                if (!isVisible(elem)) {
+                    maybeScrollToCloze(elem);
+                }
+                $(elem).hide(0);
+                $(elem).fadeIn(500);
+            }
+        }
+
+        function isVisible(elm) {
+            var rect = elm.getBoundingClientRect();
+            var viewHeight = Math.max(document.documentElement.clientHeight, window.innerHeight);
+            return !(rect.bottom < 0 || rect.top - viewHeight >= 0);
+        }
+
+        function maybeScrollToCloze(elem) {
+            if (!scrollToClozeOnToggle) return
+            $('html, body').animate({
+                scrollTop: $(elem).offset().top - 60
+            }, animateScroll ? 500 : 0);
+        }
+
+        function defineEnhancedClozeAddEventListener() {
+            if (typeof window.enhancedClozeEventListener != "undefined") {
+                for (const listener of window.enhancedClozeEventListener) {
+                    const type = listener[0]
+                    const handler = listener[1]
+                    document.removeEventListener(type, handler)
+                }
+            }
+            window.enhancedClozeEventListener = []
+
+            window.enhancedClozeAddEventListener = function (type, handler) {
+                document.addEventListener(type, handler)
+                window.enhancedClozeEventListener.push([type, handler])
+            }
+        }
+
+        var specialCharCodes = {
+            "-": "minus",
+            "=": "equal",
+            "[": "bracketleft",
+            "]": "bracketright",
+            ";": "semicolon",
+            "'": "quote",
+            "`": "backquote",
+            "\\": "backslash",
+            ",": "comma",
+            ".": "period",
+            "/": "slash",
+        };
+
+        function shortcutMatcher(shortcut) {
+            var shortcutKeys = shortcut.toLowerCase().split(/[+]/).map(key => key.trim())
+            var mainKey = shortcutKeys[shortcutKeys.length - 1]
+            if (mainKey.length === 1) {
+                if (/\d/.test(mainKey)) {
+                    mainKey = "digit" + mainKey
+                } else if (/[a-zA-Z]/.test(mainKey)) {
+                    mainKey = "key" + mainKey
+                } else {
+                    var code = specialCharCodes[mainKey];
+                    if (code) {
+                        mainKey = code
+                    }
+                }
+            }
+            var ctrl = shortcutKeys.includes("ctrl")
+            var shift = shortcutKeys.includes("shift")
+            var alt = shortcutKeys.includes("alt")
+
+            var matchShortcut = function (ctrl, shift, alt, mainKey, event) {
+                if (event.originalEvent !== undefined) {
+                    event = event.originalEvent
+                }
+                if (mainKey !== event.code.toLowerCase()) return false
+                if (ctrl !== (event.ctrlKey || event.metaKey)) return false
+                if (shift !== event.shiftKey) return false
+                if (alt !== event.altKey) return false
+                return true
+            }.bind(window, ctrl, shift, alt, mainKey)
+
+            return matchShortcut
+        }
+
+        function showNextElement(elem) {
+            $(elem).next().show(0);
+        };
+
+        async function maybeInjectJquery() {
+            if (typeof jQuery === "undefined") {
+                await injectScript("_jquery.min.js");
+            }
+        }
+
+        async function injectScript(src) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+                script.onload = resolve;
+                script.onerror = (event) => {
+                    reject(new Error(`Script load error for source: ${src}`));
+                };
+                document.head.appendChild(script);
+            });
+        };
+
+    }
+
+    // === Functions defined outside enhancedClozesMain (shared with back side) ===
+
+    function toggleCloze(elem, displayOption) {
+        if (elem == null) return
+
+        if (elem.classList.contains("pseudo-cloze"))
+            cloze = elem
+        else {
+            cloze = $(elem).closest(".pseudo-cloze")
+            if (cloze == null || cloze.length === 0) return
+        }
+
+        var index = $(cloze).attr('index');
+        var answer = enhancedClozesData["answers"][index]
+        var hint = enhancedClozesData["hints"][index]
+
+        if (!showHintsForPseudoClozes && cloze.classList.contains('pseudo-cloze')) {
+            hint = ""
+        }
+
+        if (revealPseudoClozesByDefault || answer.startsWith('#')) {
+            if (answer.startsWith('#')) {
+                answer = answer.slice(1)
+            }
+            if ($(cloze).attr('class') == 'pseudo-cloze') {
+                $(cloze).attr('show-state', 'answer');
+                $(cloze).html(answer);
+                return
+            }
+        }
+
+        if (displayOption == 'answer' || (displayOption == 'toggle' && $(cloze).attr('show-state') == 'hint')) {
+            $(cloze).attr('show-state', 'answer');
+            $(cloze).html(answer);
+        } else if (displayOption == 'hint' || (displayOption == 'toggle' && $(cloze).attr('show-state') == 'answer')) {
+            $(cloze).attr('show-state', 'hint');
+            hint = '&nbsp;&nbsp;[&nbsp;&nbsp;' + hint + '&nbsp;&nbsp;]&nbsp;&nbsp;';
+            $(cloze).html(hint);
+        }
+
+        try {
+            MathJax.Hub.Queue(["Typeset", MathJax.Hub]);
+        } catch { }
+        try {
+            MathJax.typesetPromise()
+        } catch { }
+    }
+
+    /**
+     * Check a cloze input field: compare typed answer to expected,
+     * replace input with inline diff feedback.
+     */
+    function checkClozeInput(inputElem) {
+        var $input = $(inputElem)
+        var index = $input.attr('data-index')
+        var typed = $input.val()
+        var expected = enhancedClozesData["answers"][index]
+
+        // Strip HTML tags from expected answer for comparison
+        var tmp = document.createElement("div")
+        tmp.innerHTML = expected
+        var expectedText = tmp.textContent || tmp.innerText || ""
+
+        // Normalize: trim and collapse whitespace
+        typed = typed.trim().replace(/\s+/g, ' ')
+        expectedText = expectedText.trim().replace(/\s+/g, ' ')
+
+        var diffHtml
+        if (typed === expectedText) {
+            // Exact match — show in green
+            diffHtml = '<span class="cloze-diff"><span class="cloze-diff-correct">' +
+                escapeHtml(expectedText) + '</span></span>'
+        } else {
+            // Show character-level diff
+            var diff = charDiff(expectedText, typed)
+            diffHtml = '<span class="cloze-diff">'
+            diffHtml += '<span class="cloze-diff-row"><span class="diff-label">Expected:</span>' +
+                renderDiffExpected(diff) + '</span>'
+            diffHtml += '<span class="cloze-diff-row"><span class="diff-label">Got:</span>' +
+                renderDiffGot(diff) + '</span>'
+            diffHtml += '</span>'
+        }
+
+        $input.replaceWith(diffHtml)
+    }
+
+    /**
+     * Character-level diff using longest common subsequence.
+     * Returns array of operations: {type: 'equal'|'delete'|'insert', text: string}
+     * 'delete' = in expected but not typed, 'insert' = in typed but not expected
+     */
+    function charDiff(expected, typed) {
+        var m = expected.length
+        var n = typed.length
+
+        // Build LCS table
+        var dp = []
+        for (var i = 0; i <= m; i++) {
+            dp[i] = []
+            for (var j = 0; j <= n; j++) {
+                if (i === 0 || j === 0) {
+                    dp[i][j] = 0
+                } else if (expected[i - 1] === typed[j - 1]) {
+                    dp[i][j] = dp[i - 1][j - 1] + 1
+                } else {
+                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+                }
+            }
+        }
+
+        // Backtrack to get diff operations
+        var ops = []
+        var i = m, j = n
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && expected[i - 1] === typed[j - 1]) {
+                ops.unshift({ type: 'equal', text: expected[i - 1] })
+                i--
+                j--
+            } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+                ops.unshift({ type: 'insert', text: typed[j - 1] })
+                j--
+            } else {
+                ops.unshift({ type: 'delete', text: expected[i - 1] })
+                i--
+            }
+        }
+
+        // Merge consecutive operations of the same type
+        var merged = []
+        for (var k = 0; k < ops.length; k++) {
+            if (merged.length > 0 && merged[merged.length - 1].type === ops[k].type) {
+                merged[merged.length - 1].text += ops[k].text
+            } else {
+                merged.push({ type: ops[k].type, text: ops[k].text })
+            }
+        }
+
+        return merged
+    }
+
+    /**
+     * Render the "Expected" row of the diff.
+     * Equal parts in green, deleted (missing from typed) parts in red underline.
+     */
+    function renderDiffExpected(ops) {
+        var html = ''
+        for (var i = 0; i < ops.length; i++) {
+            var op = ops[i]
+            var escaped = escapeHtml(op.text)
+            if (op.type === 'equal') {
+                html += '<span class="diff-good">' + escaped + '</span>'
+            } else if (op.type === 'delete') {
+                html += '<span class="diff-missing">' + escaped + '</span>'
+            }
+            // 'insert' ops are not part of expected
+        }
+        return html
+    }
+
+    /**
+     * Render the "Got" row of the diff.
+     * Equal parts in green, inserted (wrong/extra) parts in red strikethrough.
+     */
+    function renderDiffGot(ops) {
+        var html = ''
+        for (var i = 0; i < ops.length; i++) {
+            var op = ops[i]
+            var escaped = escapeHtml(op.text)
+            if (op.type === 'equal') {
+                html += '<span class="diff-good">' + escaped + '</span>'
+            } else if (op.type === 'insert') {
+                html += '<span class="diff-bad">' + escaped + '</span>'
+            }
+            // 'delete' ops are not part of typed
+        }
+        return html
+    }
+
+    function escapeHtml(text) {
+        var div = document.createElement('div')
+        div.appendChild(document.createTextNode(text))
+        return div.innerHTML
+    }
+
+    function escapeAttr(text) {
+        return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
+
+    enhancedClozesMain()
+</script>

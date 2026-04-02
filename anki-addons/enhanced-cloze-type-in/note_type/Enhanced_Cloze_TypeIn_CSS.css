@@ -1,0 +1,181 @@
+#card-body {
+    font: 17px/1.65em 'Avenir Next';
+    text-align: justify;
+    margin-top: 50px;
+    margin-bottom: 60px;
+}
+
+.content {
+    padding-left: 0.5em;
+    border-left: 4px solid transparent;
+}
+
+.header {
+    font: bold 17px/1.5em;
+    padding-left: 0.5em;
+}
+
+.header-red {
+    border-left: 4px solid #db4437;
+    color: #db4437;
+}
+
+.header-green {
+    border-left: 4px solid #0f9d58;
+    color: #0f9d58;
+}
+
+.header-blue {
+    border-left: 4px solid #4285f4;
+    color: #4285f4;
+}
+
+.header-yellow {
+    border-left: 4px solid #f4b400;
+    color: #f4b400;
+}
+
+/* Pseudo clozes — unchanged from original */
+.pseudo-cloze[show-state="hint"] {
+    border-bottom: 2px solid #4285f4;
+    background-color: #87b1ff;
+}
+
+/* Type-in input fields for genuine clozes */
+.cloze-input {
+    font: inherit;
+    font-size: 0.95em;
+    color: inherit;
+    background-color: rgba(255, 150, 175, 0.15);
+    border: 1px solid #ff5c82;
+    border-radius: 3px;
+    padding: 2px 6px;
+    min-width: 120px;
+    max-width: 400px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.cloze-input:focus {
+    border-color: #ff5c82;
+    box-shadow: 0 0 0 2px rgba(255, 92, 130, 0.25);
+}
+
+.cloze-input::placeholder {
+    color: rgba(255, 92, 130, 0.5);
+    font-style: italic;
+}
+
+/* Diff result container — replaces input after checking */
+.cloze-diff {
+    display: inline;
+}
+
+.cloze-diff-correct {
+    color: #0f9d58;
+    font-weight: bold;
+}
+
+.cloze-diff-row {
+    display: block;
+    margin: 1px 0;
+}
+
+.cloze-diff-row .diff-label {
+    font-size: 0.75em;
+    color: #888;
+    margin-right: 4px;
+}
+
+.diff-good {
+    color: #0f9d58;
+}
+
+.diff-bad {
+    color: #db4437;
+    text-decoration: line-through;
+}
+
+.diff-missing {
+    color: #db4437;
+    text-decoration: underline;
+}
+
+/* Border click zones */
+#show-one-cloze-left,
+#show-one-cloze-right,
+#no-more-cloze {
+    height: 100%;
+    width: 30px;
+    position: fixed;
+    z-index: 9;
+    top: 0;
+    background-color: transparent;
+}
+
+#show-one-cloze-left {
+    left: 0;
+}
+
+#show-one-cloze-right {
+    right: 0;
+}
+
+#no-more-cloze {
+    width: 10px;
+    background-color: #db4437;
+    left: 0;
+    display: none;
+}
+
+.mobile ol,
+.mobile ul,
+.mobile li {
+    margin-left: -0.5em;
+}
+
+.mobile li {
+    margin: 0.1em, inherit;
+}
+
+table {
+    border-collapse: collapse;
+    margin: 0.5em;
+}
+
+thead tr,
+tfoot tr {
+    border-top: 2px solid #0f9d58;
+    border-bottom: 2px solid #0f9d58;
+}
+
+td,
+th {
+    border: 1px solid #0f9d58;
+    padding: 0.3em 0.5em;
+}
+
+hr {
+    border-top: 1px solid #aaaaaa;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+pre {
+    border-left: 2px solid #0f9d58;
+    padding-left: 10px;
+}
+
+code,
+kbd,
+var,
+samp,
+tt {
+    background-color: #fdf3d6;
+}
+
+.disable-select {
+    -webkit-touch-callout: none;
+    user-select: none;
+}

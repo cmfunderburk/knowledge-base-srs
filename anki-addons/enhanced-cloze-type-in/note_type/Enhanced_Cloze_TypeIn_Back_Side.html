@@ -1,0 +1,32 @@
+{{FrontSide}}
+
+<span style="display:none">{{cloze:Content}}</span>
+<script>
+    $(function () {
+        $('#note').show(0)
+        $('#info').show(0)
+        $('#mnemonics').show(0)
+        $('#extra').show(0)
+
+        setTimeout(function () {
+            // Replace any remaining input fields with their answers
+            $('.cloze-input').each(function () {
+                var index = $(this).attr('data-index');
+                var answer = enhancedClozesData["answers"][index];
+                var span = $('<span class="cloze-diff-correct"></span>');
+                span.html(answer);
+                $(this).replaceWith(span);
+            });
+
+            // Reveal any genuine clozes that are still in hint state
+            $('.genuine-cloze').each(function (index, elem) {
+                toggleCloze(elem, 'answer')
+            });
+
+            // Reveal pseudo-clozes
+            $('.pseudo-cloze').each(function (index, elem) {
+                toggleCloze(elem, 'answer')
+            });
+        }, 0)
+    })
+</script>
