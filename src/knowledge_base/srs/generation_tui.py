@@ -8,6 +8,8 @@ Two review modes in a single session:
 from __future__ import annotations
 
 import argparse
+import re
+import sys
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,6 +32,7 @@ from knowledge_base.srs.generation_db import (
     insert_generation_review,
     update_generation_phase,
     update_generation_scheduling,
+    upsert_generation_card,
 )
 from knowledge_base.srs.masking import mask_text
 from knowledge_base.srs.text_scoring import TokenResult, compare_tokens, tokenize
@@ -57,6 +60,32 @@ def _section_sort_key(card: dict) -> tuple[int, str]:
     section_id = card["section_id"]
     parts = section_id.split(".", 1)
     return (int(parts[0]), parts[1] if len(parts) > 1 else "")
+
+
+def split_paste_text(text: str, split_by: str = "sentence") -> list[str]:
+    """Split raw pasted text into card-sized chunks.
+
+    Parameters
+    ----------
+    text:
+        The raw text to split.
+    split_by:
+        ``"sentence"`` — split on sentence boundaries using
+        ``r'(?<=[.!?])\\s+(?=[A-Z])'`` and strip each result.
+        ``"line"`` — split on newlines, skipping blank lines.
+
+    Returns
+    -------
+    list[str]
+        Non-empty stripped strings. Empty input returns ``[]``.
+    """
+    if not text or not text.strip():
+        return []
+    if split_by == "line":
+        return [line.strip() for line in text.splitlines() if line.strip()]
+    # sentence splitting
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z])", text)
+    return [p.strip() for p in parts if p.strip()]
 
 
 MAX_MASKING_LEVEL = 2
@@ -190,6 +219,7 @@ class GenerationReviewApp(App):
         section_filter: str | None = None,
         catalog_card_ids: list[int] | None = None,
         show_catalog: bool = False,
+        paste_cards: list[dict] | None = None,
     ) -> None:
         super().__init__()
         self.db_path = db_path
@@ -203,6 +233,7 @@ class GenerationReviewApp(App):
         self.section_filter = section_filter
         self.catalog_card_ids = catalog_card_ids
         self.show_catalog = show_catalog
+        self.paste_cards = paste_cards
         self.conn = None
         self.queue: deque[QueueItem] = deque()
         self.total_reviewed: int = 0
@@ -246,6 +277,14 @@ class GenerationReviewApp(App):
                 CatalogScreen(self.conn, self.deck_filter),
                 callback=self._on_catalog_result,
             )
+            return
+        if self.paste_cards is not None:
+            self._build_paste_queue(self.paste_cards)
+            self.total_cards = len(self.queue)
+            if not self.queue:
+                self._show_empty()
+                return
+            self._show_next()
             return
         if self.catalog_card_ids is not None:
             self._build_catalog_queue(
@@ -361,6 +400,14 @@ class GenerationReviewApp(App):
             practice_card["masking_level"] = 0
             practice_card["consecutive_max_passes"] = 0
             self.queue.append(QueueItem(card=practice_card, delay=0))
+
+    def _build_paste_queue(self, cards: list[dict]) -> None:
+        """Build queue from pre-built ephemeral card dicts (paste mode)."""
+        self.practice_mode = True
+        self.ordered_practice = False
+        self.TITLE = "Paste Drill"
+        for c in cards:
+            self.queue.append(QueueItem(card=dict(c), delay=0))
 
     def _build_source_filter_queue(self) -> None:
         """Build a practice queue from --source (with optional --topic/--section)."""
@@ -1088,7 +1135,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--paste", action="store_true",
-        help="Paste-and-drill mode (not yet implemented).",
+        help="Paste-and-drill mode: read text from stdin or prompt, split into cards, and drill.",
     )
     parser.add_argument(
         "--save-as", default=None,
@@ -1110,6 +1157,79 @@ def main() -> None:
         or args.source is not None
     )
     show_catalog = not has_explicit_mode
+
+    # --paste: read text from stdin or prompt, split into cards, and drill
+    if args.paste:
+        if not sys.stdin.isatty():
+            text = sys.stdin.read()
+        else:
+            print("Paste text below (blank line to finish):")
+            lines: list[str] = []
+            while True:
+                try:
+                    line = input()
+                except EOFError:
+                    break
+                if line == "":
+                    break
+                lines.append(line)
+            text = "\n".join(lines)
+
+        card_texts = split_paste_text(text, args.split_by)
+        if not card_texts:
+            print("No cards generated from pasted text.")
+            return
+
+        if args.save_as is not None:
+            # Persist to DB
+            conn = init_generation_db(args.db)
+            source = args.source or "paste"
+            section_id = re.sub(r"[^a-z0-9]+", "-", args.save_as.lower()).strip("-")
+            deck = args.deck or "paste"
+            for i, card_text in enumerate(card_texts):
+                upsert_generation_card(conn, {
+                    "deck": deck,
+                    "topic_id": "0",
+                    "source": source,
+                    "section_id": section_id,
+                    "section_title": args.save_as,
+                    "card_index": i,
+                    "question": f"[{i + 1}/{len(card_texts)}]",
+                    "answer": card_text,
+                    "tags": "[]",
+                })
+            conn.close()
+            print(f"Saved {len(card_texts)} card(s) as '{args.save_as}'.")
+
+        # Build ephemeral card dicts (negative card_ids signal ephemeral)
+        paste_card_dicts: list[dict] = []
+        for i, card_text in enumerate(card_texts):
+            paste_card_dicts.append({
+                "card_id": -(i + 1),
+                "deck": args.deck or "paste",
+                "topic_id": "0",
+                "source": "paste",
+                "section_id": "paste",
+                "section_title": None,
+                "card_index": i,
+                "question": f"[{i + 1}/{len(card_texts)}]",
+                "answer": card_text,
+                "tags": "[]",
+                "masking_level": 0,
+                "phase": "generation",
+                "consecutive_max_passes": 0,
+            })
+
+        app = GenerationReviewApp(
+            db_path=args.db,
+            deck=args.deck,
+            limit=args.limit,
+            stats_only=False,
+            catalog_card_ids=None,
+            paste_cards=paste_card_dicts,
+        )
+        app.run()
+        return
 
     # --source shortcut: load cards by source directly, skip catalog
     if args.source is not None:
