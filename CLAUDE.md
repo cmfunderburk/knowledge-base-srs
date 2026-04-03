@@ -31,7 +31,7 @@ uv run review-gen --start-level 2       # start at max masking for familiar mate
 uv run review-gen --paste               # paste text for ephemeral drill
 uv run review-gen --paste --save-as N --deck D --topic T --source S  # persist pasted text
 
-uv run pytest                        # ~510 tests
+uv run pytest                        # ~272 tests
 ```
 
 ## Architecture
@@ -66,7 +66,7 @@ cfa_level1_los.json ──→ gen-import ─┘                    │
 - **Ordered practice** (`--ordered-practice`): like massed practice but cards cycle in fixed LOS order (ring buffer). Pass/fail affects masking level but not queue position — card always goes to back. User drills until they quit.
 - **Start level** (`--start-level 0|1|2`): initial masking level for practice. Default 0 starts from easiest masking; 2 starts at max masking for familiar material.
 - **Source-filtered practice**: `--source S --topic T --ordered-practice` drills cards from a specific source. Without `--source`, defaults to LOS cards for backwards compatibility.
-- **Standard FSRS v6** (`fsrs.py`): completely independent from `scheduler.py`. Published default weights `W[0..18]`, 4-button discrete grading. Used only for recall phase.
+- **Standard FSRS v6** (`fsrs.py`): published default weights `W[0..18]`, 4-button discrete grading. Used only for recall phase.
 - **Regression rule**: recall-phase cards that get Again with interval < 24h demote back to generation at level 2.
 - **LOS data**: `data/cfa_level1_los.json` — 225 statements across 48 CFA Level I readings. Not gitignored (checked in).
 
@@ -75,7 +75,7 @@ cfa_level1_los.json ──→ gen-import ─┘                    │
 - Python 3.12+, managed with `uv`
 - `textual` for TUI
 - No type stubs or mypy — tests are the quality gate
-- Tests use `pytest` with fixtures in `tests/fixtures/`
+- Tests use `pytest`
 
 ## Data
 
