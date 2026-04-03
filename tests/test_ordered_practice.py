@@ -15,36 +15,47 @@ from knowledge_base.srs.generation_tui import (
     QueueItem,
     MAX_MASKING_LEVEL,
     PRACTICE_TYPEIN_LEVEL,
-    _los_sort_key,
+    _section_sort_key,
 )
 
 
-class TestLosSortKey:
+class TestSectionSortKey:
     def test_single_digit_reading(self):
-        assert _los_sort_key({"los_id": "1.a"}) == (1, "a")
+        assert _section_sort_key({"section_id": "1.a"}) == ("los", 1, "a", 0)
 
     def test_double_digit_reading(self):
-        assert _los_sort_key({"los_id": "10.b"}) == (10, "b")
+        assert _section_sort_key({"section_id": "10.b"}) == ("los", 10, "b", 0)
+
+    def test_multi_source_ordering(self):
+        """Cards from different sources sort by source first, then reading/suffix."""
+        cards = [
+            {"section_id": "1.a", "source": "schweser", "card_index": 0},
+            {"section_id": "1.a", "source": "los", "card_index": 0},
+            {"section_id": "1.a", "source": "official", "card_index": 1},
+            {"section_id": "1.a", "source": "official", "card_index": 0},
+        ]
+        sorted_sources = [(c["source"], c.get("card_index", 0)) for c in sorted(cards, key=_section_sort_key)]
+        assert sorted_sources == [("los", 0), ("official", 0), ("official", 1), ("schweser", 0)]
 
     def test_natural_order_across_readings(self):
         """Sorting by key puts 2.a before 10.a (not lexicographic '10' < '2')."""
         cards = [
-            {"los_id": "10.a"},
-            {"los_id": "2.a"},
-            {"los_id": "1.c"},
-            {"los_id": "1.a"},
-            {"los_id": "1.b"},
+            {"section_id": "10.a"},
+            {"section_id": "2.a"},
+            {"section_id": "1.c"},
+            {"section_id": "1.a"},
+            {"section_id": "1.b"},
         ]
-        sorted_ids = [c["los_id"] for c in sorted(cards, key=_los_sort_key)]
+        sorted_ids = [c["section_id"] for c in sorted(cards, key=_section_sort_key)]
         assert sorted_ids == ["1.a", "1.b", "1.c", "2.a", "10.a"]
 
     def test_within_reading_alphabetical(self):
         cards = [
-            {"los_id": "5.c"},
-            {"los_id": "5.a"},
-            {"los_id": "5.b"},
+            {"section_id": "5.c"},
+            {"section_id": "5.a"},
+            {"section_id": "5.b"},
         ]
-        sorted_ids = [c["los_id"] for c in sorted(cards, key=_los_sort_key)]
+        sorted_ids = [c["section_id"] for c in sorted(cards, key=_section_sort_key)]
         assert sorted_ids == ["5.a", "5.b", "5.c"]
 
 
@@ -96,8 +107,8 @@ class TestOrderedPracticeQueue:
         ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
         ordered_app._build_ordered_practice_queue()
 
-        los_ids = [item.card["los_id"] for item in ordered_app.queue]
-        assert los_ids == ["1.a", "1.b", "1.c", "2.a", "2.b"]
+        section_ids = [item.card["section_id"] for item in ordered_app.queue]
+        assert section_ids == ["1.a", "1.b", "1.c", "2.a", "2.b"]
 
     def test_all_delays_are_zero(self, ordered_app):
         """All items in ordered queue should have delay=0."""
@@ -134,7 +145,7 @@ class TestOrderedPracticeRequeue:
 
         # Card should be at the back of the queue
         last_item = ordered_app.queue[-1]
-        assert last_item.card["los_id"] == "1.a"
+        assert last_item.card["section_id"] == "1.a"
         assert last_item.delay == 0
         assert last_item.card["masking_level"] == 1
 
@@ -154,7 +165,7 @@ class TestOrderedPracticeRequeue:
 
         # Card should be at the back with delay=0
         last_item = ordered_app.queue[-1]
-        assert last_item.card["los_id"] == "1.a"
+        assert last_item.card["section_id"] == "1.a"
         assert last_item.delay == 0
         assert last_item.card["masking_level"] == 0
 
@@ -163,14 +174,14 @@ class TestOrderedPracticeRequeue:
         ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
         ordered_app._build_ordered_practice_queue()
 
-        original_order = [item.card["los_id"] for item in ordered_app.queue]
+        original_order = [item.card["section_id"] for item in ordered_app.queue]
 
         # Simulate reviewing all 5 cards: pop front, push to back
         for _ in range(5):
             item = ordered_app.queue.popleft()
             ordered_app.queue.append(QueueItem(card=item.card, delay=0))
 
-        after_cycle = [item.card["los_id"] for item in ordered_app.queue]
+        after_cycle = [item.card["section_id"] for item in ordered_app.queue]
         assert after_cycle == original_order
 
     def test_typein_pass_requeues_at_end_with_zero_delay(self, ordered_app):
@@ -187,7 +198,7 @@ class TestOrderedPracticeRequeue:
         ordered_app._handle_practice_pass(item, card, level=PRACTICE_TYPEIN_LEVEL)
 
         last_item = ordered_app.queue[-1]
-        assert last_item.card["los_id"] == "1.a"
+        assert last_item.card["section_id"] == "1.a"
         assert last_item.delay == 0
 
     def test_max_masking_pass_requeues_at_end_with_zero_delay(self, ordered_app):
@@ -205,7 +216,7 @@ class TestOrderedPracticeRequeue:
         ordered_app._handle_practice_pass(item, card, level=MAX_MASKING_LEVEL)
 
         last_item = ordered_app.queue[-1]
-        assert last_item.card["los_id"] == "1.a"
+        assert last_item.card["section_id"] == "1.a"
         assert last_item.delay == 0
 
 

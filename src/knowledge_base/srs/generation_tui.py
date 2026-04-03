@@ -8,6 +8,8 @@ Two review modes in a single session:
 from __future__ import annotations
 
 import argparse
+import re
+import sys
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,16 +19,20 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Footer, Header, Input, Static
 
+from knowledge_base.srs.catalog import CatalogScreen
 from knowledge_base.srs.fsrs import Grade, SchedulingResult, schedule
 from knowledge_base.srs.generation_db import (
     get_all_generation_cards,
+    get_cards_by_ids,
     get_cards_by_readings,
+    get_cards_by_source,
     get_due_generation_cards,
     get_generation_phase_cards,
     init_generation_db,
     insert_generation_review,
     update_generation_phase,
     update_generation_scheduling,
+    upsert_generation_card,
 )
 from knowledge_base.srs.masking import mask_text
 from knowledge_base.srs.text_scoring import TokenResult, compare_tokens, tokenize
@@ -49,11 +55,44 @@ def _parse_reading_spec(spec: str) -> list[str]:
     return topic_ids
 
 
-def _los_sort_key(card: dict) -> tuple[int, str]:
-    """Sort key for natural LOS ordering: (reading_number, suffix)."""
-    los_id = card["los_id"]
-    parts = los_id.split(".", 1)
-    return (int(parts[0]), parts[1] if len(parts) > 1 else "")
+def _section_sort_key(card: dict) -> tuple[str, int, str, int]:
+    """Sort key for natural ordering across sources: (source, reading_num, suffix, card_index)."""
+    section_id = card["section_id"]
+    source = card.get("source", "los")
+    card_index = card.get("card_index", 0)
+    parts = section_id.split(".", 1)
+    try:
+        reading_num = int(parts[0])
+    except ValueError:
+        reading_num = 0
+    suffix = parts[1] if len(parts) > 1 else ""
+    return (source, reading_num, suffix, card_index)
+
+
+def split_paste_text(text: str, split_by: str = "sentence") -> list[str]:
+    """Split raw pasted text into card-sized chunks.
+
+    Parameters
+    ----------
+    text:
+        The raw text to split.
+    split_by:
+        ``"sentence"`` — split on sentence boundaries using
+        ``r'(?<=[.!?])\\s+(?=[A-Z])'`` and strip each result.
+        ``"line"`` — split on newlines, skipping blank lines.
+
+    Returns
+    -------
+    list[str]
+        Non-empty stripped strings. Empty input returns ``[]``.
+    """
+    if not text or not text.strip():
+        return []
+    if split_by == "line":
+        return [line.strip() for line in text.splitlines() if line.strip()]
+    # sentence splitting
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z])", text)
+    return [p.strip() for p in parts if p.strip()]
 
 
 MAX_MASKING_LEVEL = 2
@@ -183,6 +222,12 @@ class GenerationReviewApp(App):
         stats_only: bool = False,
         practice: str | None = None,
         ordered_practice: str | None = None,
+        source_filter: str | None = None,
+        section_filter: str | None = None,
+        topic_filter: str | None = None,
+        catalog_card_ids: list[int] | None = None,
+        show_catalog: bool = False,
+        paste_cards: list[dict] | None = None,
     ) -> None:
         super().__init__()
         self.db_path = db_path
@@ -192,6 +237,12 @@ class GenerationReviewApp(App):
         self.practice_mode = practice is not None or ordered_practice is not None
         self.practice_spec = practice or ordered_practice  # "all", "5", "1-5", etc.
         self.ordered_practice = ordered_practice is not None
+        self.source_filter = source_filter
+        self.section_filter = section_filter
+        self.topic_filter = topic_filter
+        self.catalog_card_ids = catalog_card_ids
+        self.show_catalog = show_catalog
+        self.paste_cards = paste_cards
         self.conn = None
         self.queue: deque[QueueItem] = deque()
         self.total_reviewed: int = 0
@@ -230,6 +281,38 @@ class GenerationReviewApp(App):
         if self.stats_only:
             self._show_stats_screen()
             return
+        if self.show_catalog:
+            self.push_screen(
+                CatalogScreen(self.conn, self.deck_filter),
+                callback=self._on_catalog_result,
+            )
+            return
+        if self.paste_cards is not None:
+            self._build_paste_queue(self.paste_cards)
+            self.total_cards = len(self.queue)
+            if not self.queue:
+                self._show_empty()
+                return
+            self._show_next()
+            return
+        if self.catalog_card_ids is not None:
+            self._build_catalog_queue(
+                self.catalog_card_ids, ordered=self.ordered_practice,
+            )
+            self.total_cards = len(self.queue)
+            if not self.queue:
+                self._show_empty()
+                return
+            self._show_next()
+            return
+        if self.source_filter is not None:
+            self._build_source_filter_queue()
+            self.total_cards = len(self.queue)
+            if not self.queue:
+                self._show_empty()
+                return
+            self._show_next()
+            return
         if self.practice_mode:
             if self.ordered_practice:
                 self._build_ordered_practice_queue()
@@ -241,13 +324,17 @@ class GenerationReviewApp(App):
             self._build_queue()
         self.total_cards = len(self.queue)
         if not self.queue:
-            self.query_one("#card-header", Static).update("No cards due")
-            self.query_one("#question", Static).update(
-                "All caught up! Press Ctrl+Q to quit."
-            )
-            self._hide_input()
+            self._show_empty()
             return
         self._show_next()
+
+    def _show_empty(self) -> None:
+        """Display the 'no cards' message."""
+        self.query_one("#card-header", Static).update("No cards due")
+        self.query_one("#question", Static).update(
+            "All caught up! Press Ctrl+Q to quit."
+        )
+        self._hide_input()
 
     # ------------------------------------------------------------------
     # Queue management
@@ -279,7 +366,81 @@ class GenerationReviewApp(App):
             cards = get_cards_by_readings(
                 self.conn, topic_ids=topic_ids, deck=self.deck_filter,
             )
-        cards.sort(key=_los_sort_key)
+        cards.sort(key=_section_sort_key)
+        for c in cards:
+            practice_card = dict(c)
+            practice_card["phase"] = "generation"
+            practice_card["masking_level"] = 0
+            practice_card["consecutive_max_passes"] = 0
+            self.queue.append(QueueItem(card=practice_card, delay=0))
+
+    def _on_catalog_result(self, result) -> None:
+        """Callback from CatalogScreen dismiss — build queue from selected cards."""
+        if result is None:
+            self.exit()
+            return
+        mode, card_ids = result
+        ordered = mode == "ordered"
+        self.practice_mode = True
+        self.ordered_practice = ordered
+        self.TITLE = "Ordered Practice" if ordered else "Massed Practice"
+        self._build_catalog_queue(card_ids, ordered=ordered)
+        self.total_cards = len(self.queue)
+        if self.queue:
+            self._show_next()
+        else:
+            self._show_empty()
+
+    def _build_catalog_queue(
+        self, card_ids: list[int], ordered: bool = False,
+    ) -> None:
+        """Build a practice queue from explicit card IDs (catalog selection)."""
+        cards = get_cards_by_ids(self.conn, card_ids)
+        if ordered:
+            cards.sort(key=_section_sort_key)
+            self.TITLE = "Ordered Practice"
+        else:
+            self.TITLE = "Massed Practice"
+        self.practice_mode = True
+        self.ordered_practice = ordered
+        for c in cards:
+            practice_card = dict(c)
+            practice_card["phase"] = "generation"
+            practice_card["masking_level"] = 0
+            practice_card["consecutive_max_passes"] = 0
+            self.queue.append(QueueItem(card=practice_card, delay=0))
+
+    def _build_paste_queue(self, cards: list[dict]) -> None:
+        """Build queue from pre-built ephemeral card dicts (paste mode)."""
+        self.practice_mode = True
+        self.ordered_practice = False
+        self.TITLE = "Paste Drill"
+        for c in cards:
+            self.queue.append(QueueItem(card=dict(c), delay=0))
+
+    def _build_source_filter_queue(self) -> None:
+        """Build a practice queue from --source (with optional --topic/--section)."""
+        topic_ids = None
+        if self.topic_filter and self.topic_filter != "all":
+            topic_ids = _parse_reading_spec(self.topic_filter)
+
+        section_ids = None
+        if self.section_filter:
+            section_ids = [s.strip() for s in self.section_filter.split(",")]
+
+        cards = get_cards_by_source(
+            self.conn,
+            source=self.source_filter,
+            topic_ids=topic_ids,
+            section_ids=section_ids,
+            deck=self.deck_filter,
+        )
+        self.practice_mode = True
+        if self.ordered_practice:
+            cards.sort(key=_section_sort_key)
+            self.TITLE = "Ordered Practice"
+        else:
+            self.TITLE = "Massed Practice"
         for c in cards:
             practice_card = dict(c)
             practice_card["phase"] = "generation"
@@ -369,28 +530,39 @@ class GenerationReviewApp(App):
         else:
             self._show_recall_card(item)
 
+    def _card_location(self, card: dict) -> str:
+        """Build the location portion of the header from card metadata."""
+        source = card.get("source", "los")
+        section_id = card["section_id"]
+        section_title = card.get("section_title")
+        deck = card["deck"]
+
+        if source == "los":
+            return f"{deck} > {section_id}"
+        elif section_title:
+            return f"{deck} > {source} > {section_id}: {section_title}"
+        else:
+            return f"{deck} > {source} > LOS {section_id}"
+
     def _show_generation_card(self, item: QueueItem) -> None:
         """Display a generation-phase card with masked text."""
         card = item.card
         level = card["masking_level"]
         card_id_str = str(card["card_id"])
 
-        remaining = len(self.queue) + 1  # +1 for current
         progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
+        location = self._card_location(card)
 
         if self.practice_mode and level >= PRACTICE_TYPEIN_LEVEL:
             mode_label = "ordered" if self.ordered_practice else "practice"
-            header = (
-                f"{card['deck']} > {card['los_id']}  {progress}"
-                f"  ({mode_label} — type-in)"
-            )
+            header = f"{location}  {progress}  ({mode_label} — type-in)"
             self.query_one("#card-header", Static).update(header)
             self.query_one("#question", Static).update(card["question"])
             self.query_one("#masked-text", Static).update("")
         elif self.practice_mode:
             mode_label = "ordered" if self.ordered_practice else "practice"
             header = (
-                f"{card['deck']} > {card['los_id']}  {progress}"
+                f"{location}  {progress}"
                 f"  ({mode_label} — level {level}/{MAX_MASKING_LEVEL})"
             )
             self.query_one("#card-header", Static).update(header)
@@ -399,7 +571,7 @@ class GenerationReviewApp(App):
             self.query_one("#masked-text", Static).update(masked)
         else:
             header = (
-                f"{card['deck']} > {card['los_id']}  {progress}"
+                f"{location}  {progress}"
                 f"  (generation — level {level}/{MAX_MASKING_LEVEL})"
             )
             self.query_one("#card-header", Static).update(header)
@@ -424,7 +596,8 @@ class GenerationReviewApp(App):
         """Display a recall-phase card with bare question."""
         card = item.card
         progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
-        header = f"{card['deck']} > {card['los_id']}  {progress}  (recall)"
+        location = self._card_location(card)
+        header = f"{location}  {progress}  (recall)"
         self.query_one("#card-header", Static).update(header)
         self.query_one("#question", Static).update(card["question"])
         self.query_one("#masked-text", Static).update("")
@@ -969,7 +1142,133 @@ def main() -> None:
              "Specify readings: 'all', '36', '1-5', '1,3,5'. "
              "No persistent state changes.",
     )
+    parser.add_argument(
+        "--source", default=None,
+        help="Filter by source (e.g. 'los', 'markdown'). "
+             "Launches massed practice with matching cards.",
+    )
+    parser.add_argument(
+        "--topic", default=None, metavar="READINGS",
+        help="Filter by topic (reading spec syntax: '5', '1-5', '1,3,5'). "
+             "Used with --source.",
+    )
+    parser.add_argument(
+        "--section", default=None,
+        help="Filter by section ID(s), comma-separated. "
+             "Used with --source.",
+    )
+    parser.add_argument(
+        "--paste", action="store_true",
+        help="Paste-and-drill mode: read text from stdin or prompt, split into cards, and drill.",
+    )
+    parser.add_argument(
+        "--save-as", default=None,
+        help="Save pasted content with this name (used with --paste).",
+    )
+    parser.add_argument(
+        "--split-by", choices=["sentence", "line"], default="sentence",
+        help="How to split pasted text into cards (default: sentence).",
+    )
     args = parser.parse_args()
+
+    # Determine whether to show the catalog as the entry screen.
+    # Catalog is the default when no explicit mode flags are provided.
+    has_explicit_mode = (
+        args.practice is not None
+        or args.ordered_practice is not None
+        or args.paste
+        or args.stats
+        or args.source is not None
+    )
+    show_catalog = not has_explicit_mode
+
+    # --paste: read text from stdin or prompt, split into cards, and drill
+    if args.paste:
+        if not sys.stdin.isatty():
+            text = sys.stdin.read()
+        else:
+            print("Paste text below (blank line to finish):")
+            lines: list[str] = []
+            while True:
+                try:
+                    line = input()
+                except EOFError:
+                    break
+                if line == "":
+                    break
+                lines.append(line)
+            text = "\n".join(lines)
+
+        card_texts = split_paste_text(text, args.split_by)
+        if not card_texts:
+            print("No cards generated from pasted text.")
+            return
+
+        if args.save_as is not None:
+            # Persist to DB
+            conn = init_generation_db(args.db)
+            source = args.source or "paste"
+            section_id = re.sub(r"[^a-z0-9]+", "-", args.save_as.lower()).strip("-")
+            deck = args.deck or "paste"
+            for i, card_text in enumerate(card_texts):
+                upsert_generation_card(conn, {
+                    "deck": deck,
+                    "topic_id": "0",
+                    "source": source,
+                    "section_id": section_id,
+                    "section_title": args.save_as,
+                    "card_index": i,
+                    "question": f"[{i + 1}/{len(card_texts)}]",
+                    "answer": card_text,
+                    "tags": "[]",
+                })
+            conn.close()
+            print(f"Saved {len(card_texts)} card(s) as '{args.save_as}'.")
+
+        # Build ephemeral card dicts (negative card_ids signal ephemeral)
+        paste_card_dicts: list[dict] = []
+        for i, card_text in enumerate(card_texts):
+            paste_card_dicts.append({
+                "card_id": -(i + 1),
+                "deck": args.deck or "paste",
+                "topic_id": "0",
+                "source": "paste",
+                "section_id": "paste",
+                "section_title": None,
+                "card_index": i,
+                "question": f"[{i + 1}/{len(card_texts)}]",
+                "answer": card_text,
+                "tags": "[]",
+                "masking_level": 0,
+                "phase": "generation",
+                "consecutive_max_passes": 0,
+            })
+
+        app = GenerationReviewApp(
+            db_path=args.db,
+            deck=args.deck,
+            limit=args.limit,
+            stats_only=False,
+            catalog_card_ids=None,
+            paste_cards=paste_card_dicts,
+        )
+        app.run()
+        return
+
+    # --source shortcut: load cards by source directly, skip catalog
+    if args.source is not None:
+        app = GenerationReviewApp(
+            db_path=args.db,
+            deck=args.deck,
+            limit=args.limit,
+            stats_only=False,
+            ordered_practice=args.ordered_practice,
+            source_filter=args.source,
+            section_filter=args.section,
+            topic_filter=args.topic,
+        )
+        app.run()
+        return
 
     app = GenerationReviewApp(
         db_path=args.db,
@@ -978,5 +1277,6 @@ def main() -> None:
         stats_only=args.stats,
         practice=args.practice,
         ordered_practice=args.ordered_practice,
+        show_catalog=show_catalog,
     )
     app.run()

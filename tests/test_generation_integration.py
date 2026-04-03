@@ -84,11 +84,11 @@ def los_db(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _get_card_by_los(conn, los_id: str) -> dict:
+def _get_card_by_section(conn, section_id: str) -> dict:
     row = conn.execute(
-        "SELECT * FROM generation_cards WHERE los_id = ?", (los_id,)
+        "SELECT * FROM generation_cards WHERE section_id = ?", (section_id,)
     ).fetchone()
-    assert row is not None, f"Card not found for los_id={los_id!r}"
+    assert row is not None, f"Card not found for section_id={section_id!r}"
     return dict(row)
 
 
@@ -101,7 +101,7 @@ class TestGenerationLifecycle:
 
     def test_masking_progression(self, los_db):
         """Masking gets progressively harder: level 0 < level 1 < level 2."""
-        card = _get_card_by_los(los_db, "1.a")
+        card = _get_card_by_section(los_db, "1.a")
         answer = card["answer"]
         card_id_str = str(card["card_id"])
 
@@ -120,7 +120,7 @@ class TestGenerationLifecycle:
 
     def test_graduation_flow(self, los_db):
         """Simulate progression through masking levels; card graduates to recall."""
-        card = _get_card_by_los(los_db, "1.b")
+        card = _get_card_by_section(los_db, "1.b")
         card_id = card["card_id"]
 
         # Initially in generation phase at level 0
@@ -146,7 +146,7 @@ class TestGenerationLifecycle:
 
     def test_recall_scheduling(self, los_db):
         """Graduate a card; FSRS scheduling produces valid stability and intervals."""
-        card = _get_card_by_los(los_db, "2.a")
+        card = _get_card_by_section(los_db, "2.a")
         card_id = card["card_id"]
 
         # Graduate the card
@@ -199,7 +199,7 @@ class TestGenerationLifecycle:
 
     def test_regression_on_again(self, los_db):
         """Grade.AGAIN on first recall review yields a short interval (< 1 day)."""
-        card = _get_card_by_los(los_db, "1.a")
+        card = _get_card_by_section(los_db, "1.a")
         card_id = card["card_id"]
 
         # Graduate the card
@@ -221,7 +221,7 @@ class TestGenerationLifecycle:
 
     def test_text_scoring_display(self, los_db):
         """compare_tokens produces meaningful feedback on a partial answer."""
-        card = _get_card_by_los(los_db, "1.a")
+        card = _get_card_by_section(los_db, "1.a")
         correct_answer = card["answer"]
 
         # Typed text: a subset of the correct answer (first five content words)
