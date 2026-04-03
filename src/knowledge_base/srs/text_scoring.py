@@ -147,17 +147,31 @@ def _try_parse_number(s: str) -> float | None:
 def _normalize_text(s: str) -> str:
     """Normalize text for forgiving comparison.
 
-    Normalizes dashes (en-dash, em-dash → hyphen), collapses whitespace,
-    strips leading/trailing whitespace, and lowercases.
+    Normalizes dashes (en-dash, em-dash → hyphen), strips decorative
+    prefixes (~, $, <, >) and unit suffixes (%, years, tonnes, etc.),
+    removes commas in numbers, collapses whitespace, and lowercases.
     """
     # Normalize unicode dashes to ASCII hyphen
     s = s.replace("\u2013", "-")  # en-dash
     s = s.replace("\u2014", "-")  # em-dash
     s = s.replace("\u2012", "-")  # figure dash
     s = s.replace("\u2015", "-")  # horizontal bar
+    s = s.strip().lower()
+    # Strip leading decorators
+    s = s.lstrip("~$")
+    # Strip trailing unit suffixes
+    for suffix in (
+        "%", "+", "years", "tonnes", "tonne", "ug/m3", "mj/$",
+        "km²", "km2", "m²", "m2", "each", "b", "m", "k",
+    ):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    # Remove commas (thousands separators)
+    s = s.replace(",", "")
     # Normalize whitespace
     s = " ".join(s.split())
-    return s.strip().lower()
+    return s.strip()
 
 
 def check_exact_answer(typed: str, stored: str) -> bool:
@@ -165,7 +179,8 @@ def check_exact_answer(typed: str, stored: str) -> bool:
 
     Numeric-aware: both sides are parsed as numbers if possible,
     compared as floats. Falls back to normalized string comparison
-    (case-insensitive, dash-normalized, whitespace-collapsed).
+    that strips decorative prefixes/suffixes (~, $, %, units) so the
+    user only needs to type the core numbers and ranges.
     """
     typed = typed.strip()
     stored = stored.strip()

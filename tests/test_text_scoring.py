@@ -202,8 +202,8 @@ class TestCheckExactAnswer:
     def test_whitespace_stripped(self):
         assert check_exact_answer("  6.2  ", "6.2") is True
 
-    def test_dollar_sign_prevents_numeric_parse(self):
-        assert check_exact_answer("$6.2", "6.2") is False
+    def test_dollar_sign_stripped(self):
+        assert check_exact_answer("$6.2", "6.2") is True
 
     def test_both_non_numeric_case_insensitive(self):
         assert check_exact_answer("YES", "yes") is True
@@ -225,3 +225,33 @@ class TestCheckExactAnswer:
 
     def test_extra_whitespace_normalized(self):
         assert check_exact_answer("50 - 60  years", "50 - 60 years") is True
+
+    def test_tilde_optional(self):
+        assert check_exact_answer("50000", "~$50,000") is True
+
+    def test_dollar_sign_optional(self):
+        assert check_exact_answer("50000-80000", "$50,000–80,000") is True
+
+    def test_percent_suffix_optional(self):
+        assert check_exact_answer("5-10", "5–10%") is True
+
+    def test_unit_suffix_years_optional(self):
+        assert check_exact_answer("73", "~73 years") is True
+
+    def test_unit_suffix_tonnes_optional(self):
+        assert check_exact_answer("5", "~5 tonnes") is True
+
+    def test_both_typed_with_decorators(self):
+        assert check_exact_answer("~$50,000", "~$50,000") is True
+
+    def test_range_with_all_decorators(self):
+        assert check_exact_answer("50000-80000", "~$50,000–80,000") is True
+
+    def test_less_than_prefix(self):
+        assert check_exact_answer("<1", "<1%") is True
+
+    def test_greater_than_prefix(self):
+        assert check_exact_answer(">100", ">100%") is True
+
+    def test_negative_range(self):
+        assert check_exact_answer("-2 to -5", "-2 to -5%") is True
