@@ -939,7 +939,11 @@ class GenerationReviewApp(App):
         self._requeue(item, 1)
 
     def _handle_exact_answer(self, correct: bool, typed: str) -> None:
-        """Handle an exact-answer card result — auto pass/fail."""
+        """Handle an exact-answer card result — auto pass/fail.
+
+        Shows feedback and waits for Space/Enter before advancing.
+        Requeue is deferred via _pending_requeue.
+        """
         item = self._current_item
         card = item.card
         card_id = card["card_id"]
@@ -958,31 +962,35 @@ class GenerationReviewApp(App):
                 "",
                 f"[dim]Answer:[/] {card['answer']}",
                 pass_label,
+                "",
+                "[dim]Space/Enter to continue...[/]",
             ]
             self.query_one("#result", Static).update("\n".join(lines))
             self._hide_input()
-            self._finish_review()
             if self.ordered_practice:
-                self._requeue(item)
+                self._pending_requeue = (item, None)
             else:
                 pos = massed_requeue_position(
                     passed=True, pass_count=count, queue_len=len(self.queue),
                 )
-                self._requeue(item, pos)
+                self._pending_requeue = (item, pos)
+            self._awaiting_advance = True
         else:
             lines = [
                 "[red]Incorrect[/]",
                 "",
                 f"[dim]Expected:[/] {card['answer']}",
                 f"[dim]You typed:[/] {typed}",
+                "",
+                "[dim]Space/Enter to continue...[/]",
             ]
             self.query_one("#result", Static).update("\n".join(lines))
             self._hide_input()
-            self._finish_review()
             if self.ordered_practice:
-                self._requeue(item)
+                self._pending_requeue = (item, None)
             else:
-                self._requeue(item, 1)
+                self._pending_requeue = (item, 1)
+            self._awaiting_advance = True
 
     def _graduate_card(
         self, card: dict, now_str: str, elapsed_days: float
