@@ -17,7 +17,7 @@ from pathlib import Path
 # Schema
 # ---------------------------------------------------------------------------
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS generation_schema_version (
@@ -29,8 +29,11 @@ _DDL_GENERATION_CARDS = """
 CREATE TABLE IF NOT EXISTS generation_cards (
     card_id                INTEGER PRIMARY KEY AUTOINCREMENT,
     deck                   TEXT    NOT NULL,
+    source                 TEXT    NOT NULL DEFAULT 'los',
     topic_id               TEXT    NOT NULL,
-    los_id                 TEXT    NOT NULL,
+    section_id             TEXT    NOT NULL,
+    section_title          TEXT,
+    card_index             INTEGER NOT NULL DEFAULT 0,
     question               TEXT    NOT NULL,
     answer                 TEXT    NOT NULL,
     tags                   TEXT    NOT NULL DEFAULT '[]',
@@ -42,7 +45,7 @@ CREATE TABLE IF NOT EXISTS generation_cards (
     last_review            TEXT,
     due                    TEXT,
     reps                   INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (deck, los_id)
+    UNIQUE (deck, source, topic_id, section_id, card_index)
 );
 """
 
@@ -64,6 +67,7 @@ _DDL_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_gen_cards_due      ON generation_cards (due, reps);
 CREATE INDEX IF NOT EXISTS idx_gen_cards_deck     ON generation_cards (deck);
 CREATE INDEX IF NOT EXISTS idx_gen_cards_phase    ON generation_cards (phase);
+CREATE INDEX IF NOT EXISTS idx_gen_cards_source   ON generation_cards (source);
 CREATE INDEX IF NOT EXISTS idx_gen_review_log_card ON generation_review_log (card_id);
 """
 
@@ -85,10 +89,17 @@ _PHASE_FIELDS = frozenset({
     "consecutive_max_passes",
 })
 
+# Unique constraint columns for upsert ON CONFLICT
+_CONFLICT_COLS = "deck, source, topic_id, section_id, card_index"
+
 # Content fields updated on upsert (scheduling and phase state are preserved)
 _CONTENT_FIELDS = (
     "deck",
+    "source",
     "topic_id",
+    "section_id",
+    "section_title",
+    "card_index",
     "question",
     "answer",
     "tags",
@@ -98,6 +109,64 @@ _CONTENT_FIELDS = (
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Migrate generation_cards from schema v1 to v2.
+
+    SQLite does not support ALTER TABLE to change constraints, so the
+    migration creates a new table with the v2 schema, copies all data
+    (mapping ``los_id`` → ``section_id``, adding ``source='los'`` and
+    ``card_index=0``), drops the old table, and renames the new one.
+
+    All scheduling and phase state is preserved.
+    """
+    # FK enforcement is disabled/re-enabled by the caller (init_generation_db)
+    # outside the transaction, since PRAGMA foreign_keys is a no-op inside
+    # an active transaction in SQLite.
+    conn.execute("""
+        CREATE TABLE generation_cards_v2 (
+            card_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            deck                   TEXT    NOT NULL,
+            source                 TEXT    NOT NULL DEFAULT 'los',
+            topic_id               TEXT    NOT NULL,
+            section_id             TEXT    NOT NULL,
+            section_title          TEXT,
+            card_index             INTEGER NOT NULL DEFAULT 0,
+            question               TEXT    NOT NULL,
+            answer                 TEXT    NOT NULL,
+            tags                   TEXT    NOT NULL DEFAULT '[]',
+            masking_level          INTEGER NOT NULL DEFAULT 0,
+            phase                  TEXT    NOT NULL DEFAULT 'generation',
+            consecutive_max_passes INTEGER NOT NULL DEFAULT 0,
+            difficulty             REAL    NOT NULL DEFAULT 5.0,
+            stability              REAL    NOT NULL DEFAULT 0.0,
+            last_review            TEXT,
+            due                    TEXT,
+            reps                   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (deck, source, topic_id, section_id, card_index)
+        )
+    """)
+    conn.execute("""
+        INSERT INTO generation_cards_v2 (
+            card_id, deck, source, topic_id, section_id, section_title,
+            card_index, question, answer, tags, masking_level, phase,
+            consecutive_max_passes, difficulty, stability, last_review,
+            due, reps
+        )
+        SELECT
+            card_id, deck, 'los', topic_id, los_id, NULL,
+            0, question, answer, tags, masking_level, phase,
+            consecutive_max_passes, difficulty, stability, last_review,
+            due, reps
+        FROM generation_cards
+    """)
+    conn.execute("DROP TABLE generation_cards")
+    conn.execute("ALTER TABLE generation_cards_v2 RENAME TO generation_cards")
+    conn.execute(
+        "UPDATE generation_schema_version SET version = ?",
+        (CURRENT_SCHEMA_VERSION,),
+    )
+
 
 def init_generation_db(
     db_path: str | Path = ":memory:",
@@ -125,31 +194,61 @@ def init_generation_db(
 
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA foreign_keys=ON;")
 
-    with conn:
-        conn.execute(_DDL_SCHEMA_VERSION)
-        conn.execute(_DDL_GENERATION_CARDS)
-        conn.execute(_DDL_GENERATION_REVIEW_LOG)
-        for stmt in _DDL_INDEXES.strip().splitlines():
-            stmt = stmt.strip()
-            if stmt:
-                conn.execute(stmt)
-
-        # Ensure exactly one version row exists
+    # Determine if migration is needed before opening a transaction,
+    # since PRAGMA foreign_keys is a no-op inside an active transaction.
+    needs_migration = False
+    try:
         version_count = conn.execute(
             "SELECT COUNT(*) FROM generation_schema_version"
         ).fetchone()[0]
+        if version_count > 0:
+            stored_version = conn.execute(
+                "SELECT version FROM generation_schema_version"
+            ).fetchone()[0]
+            needs_migration = stored_version < 2
+    except sqlite3.OperationalError:
+        pass  # Table doesn't exist yet — fresh DB
+
+    if needs_migration:
+        # Disable FKs outside any transaction for the migration
+        conn.execute("PRAGMA foreign_keys=OFF;")
+        with conn:
+            _migrate_v1_to_v2(conn)
+        # Re-enable FKs outside the transaction
+        conn.execute("PRAGMA foreign_keys=ON;")
+    else:
+        conn.execute("PRAGMA foreign_keys=ON;")
+
+    with conn:
+        conn.execute(_DDL_SCHEMA_VERSION)
+
+        version_count = conn.execute(
+            "SELECT COUNT(*) FROM generation_schema_version"
+        ).fetchone()[0]
+
         if version_count == 0:
+            # Fresh database — create tables and stamp version
+            conn.execute(_DDL_GENERATION_CARDS)
+            conn.execute(_DDL_GENERATION_REVIEW_LOG)
             conn.execute(
                 "INSERT INTO generation_schema_version (version) VALUES (?)",
                 (CURRENT_SCHEMA_VERSION,),
             )
         else:
+            # Ensure tables exist (idempotent for already-migrated DBs)
+            conn.execute(_DDL_GENERATION_CARDS)
+            conn.execute(_DDL_GENERATION_REVIEW_LOG)
+            # Stamp current version
             conn.execute(
                 "UPDATE generation_schema_version SET version = ?",
                 (CURRENT_SCHEMA_VERSION,),
             )
+
+        for stmt in _DDL_INDEXES.strip().splitlines():
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
 
     return conn
 
@@ -160,7 +259,8 @@ def insert_generation_card(conn: sqlite3.Connection, card: dict) -> int:
     Raises
     ------
     sqlite3.IntegrityError
-        If a card with the same ``(deck, los_id)`` already exists.
+        If a card with the same ``(deck, source, topic_id, section_id, card_index)``
+        already exists.
     """
     columns = list(card.keys())
     col_clause = ", ".join(columns)
@@ -183,12 +283,13 @@ def get_generation_card(conn: sqlite3.Connection, card_id: int) -> dict | None:
 
 
 def upsert_generation_card(conn: sqlite3.Connection, card: dict) -> int:
-    """Insert or update a generation card identified by ``(deck, los_id)``.
+    """Insert or update a generation card identified by
+    ``(deck, source, topic_id, section_id, card_index)``.
 
-    On conflict, content fields (deck, topic_id, question, answer, tags) are
-    updated but scheduling state (difficulty, stability, last_review, due,
-    reps) and phase state (masking_level, phase, consecutive_max_passes) are
-    preserved.
+    On conflict, content fields (deck, source, topic_id, section_id,
+    section_title, card_index, question, answer, tags) are updated but
+    scheduling state (difficulty, stability, last_review, due, reps) and
+    phase state (masking_level, phase, consecutive_max_passes) are preserved.
 
     Returns
     -------
@@ -209,7 +310,7 @@ def upsert_generation_card(conn: sqlite3.Connection, card: dict) -> int:
     if not update_parts:
         upsert_sql = (
             f"INSERT INTO generation_cards ({col_clause}) VALUES ({placeholders}) "
-            "ON CONFLICT (deck, los_id) DO NOTHING "
+            f"ON CONFLICT ({_CONFLICT_COLS}) DO NOTHING "
             "RETURNING card_id"
         )
         row = conn.execute(upsert_sql, values).fetchone()
@@ -218,8 +319,10 @@ def upsert_generation_card(conn: sqlite3.Connection, card: dict) -> int:
             return row[0]
         # Row already existed and DO NOTHING fired — fetch the id
         existing = conn.execute(
-            "SELECT card_id FROM generation_cards WHERE deck=? AND los_id=?",
-            (card["deck"], card["los_id"]),
+            "SELECT card_id FROM generation_cards "
+            "WHERE deck=? AND source=? AND topic_id=? AND section_id=? AND card_index=?",
+            (card["deck"], card["source"], card["topic_id"],
+             card["section_id"], card["card_index"]),
         ).fetchone()
         conn.commit()
         return existing[0]
@@ -227,7 +330,7 @@ def upsert_generation_card(conn: sqlite3.Connection, card: dict) -> int:
     update_clause = ", ".join(update_parts)
     upsert_sql = (
         f"INSERT INTO generation_cards ({col_clause}) VALUES ({placeholders}) "
-        f"ON CONFLICT (deck, los_id) DO UPDATE SET {update_clause} "
+        f"ON CONFLICT ({_CONFLICT_COLS}) DO UPDATE SET {update_clause} "
         "RETURNING card_id"
     )
     row = conn.execute(upsert_sql, values).fetchone()

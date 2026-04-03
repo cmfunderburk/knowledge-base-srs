@@ -90,7 +90,7 @@ class TestImportLos:
         import_los(conn, data_path=sample_los_data)
 
         row = conn.execute(
-            "SELECT * FROM generation_cards WHERE los_id = '1.a'"
+            "SELECT * FROM generation_cards WHERE section_id = '1.a'"
         ).fetchone()
         assert row is not None
         row = dict(row)
@@ -107,7 +107,7 @@ class TestImportLos:
         import_los(conn, data_path=sample_los_data)
 
         row = conn.execute(
-            "SELECT * FROM generation_cards WHERE los_id = '2.a'"
+            "SELECT * FROM generation_cards WHERE section_id = '2.a'"
         ).fetchone()
         assert row is not None
         row = dict(row)
@@ -122,7 +122,7 @@ class TestImportLos:
         import_los(conn, data_path=sample_los_data)
 
         row = conn.execute(
-            "SELECT tags FROM generation_cards WHERE los_id = '1.a'"
+            "SELECT tags FROM generation_cards WHERE section_id = '1.a'"
         ).fetchone()
         tags = json.loads(row["tags"])
 
@@ -134,7 +134,7 @@ class TestImportLos:
         import_los(conn, data_path=sample_los_data)
 
         row = conn.execute(
-            "SELECT tags FROM generation_cards WHERE los_id = '1.a'"
+            "SELECT tags FROM generation_cards WHERE section_id = '1.a'"
         ).fetchone()
         tags = json.loads(row["tags"])
 
@@ -148,7 +148,7 @@ class TestImportLos:
         import_los(conn, data_path=sample_los_data)
 
         row = conn.execute(
-            "SELECT tags FROM generation_cards WHERE los_id = '2.a'"
+            "SELECT tags FROM generation_cards WHERE section_id = '2.a'"
         ).fetchone()
         tags = json.loads(row["tags"])
 
@@ -171,7 +171,7 @@ class TestImportLos:
 
         # Simulate some scheduling progress on card 1.a
         row = conn.execute(
-            "SELECT card_id FROM generation_cards WHERE los_id = '1.a'"
+            "SELECT card_id FROM generation_cards WHERE section_id = '1.a'"
         ).fetchone()
         card_id = row["card_id"]
 

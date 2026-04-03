@@ -49,10 +49,10 @@ def _parse_reading_spec(spec: str) -> list[str]:
     return topic_ids
 
 
-def _los_sort_key(card: dict) -> tuple[int, str]:
-    """Sort key for natural LOS ordering: (reading_number, suffix)."""
-    los_id = card["los_id"]
-    parts = los_id.split(".", 1)
+def _section_sort_key(card: dict) -> tuple[int, str]:
+    """Sort key for natural section ordering: (reading_number, suffix)."""
+    section_id = card["section_id"]
+    parts = section_id.split(".", 1)
     return (int(parts[0]), parts[1] if len(parts) > 1 else "")
 
 
@@ -279,7 +279,7 @@ class GenerationReviewApp(App):
             cards = get_cards_by_readings(
                 self.conn, topic_ids=topic_ids, deck=self.deck_filter,
             )
-        cards.sort(key=_los_sort_key)
+        cards.sort(key=_section_sort_key)
         for c in cards:
             practice_card = dict(c)
             practice_card["phase"] = "generation"
@@ -381,7 +381,7 @@ class GenerationReviewApp(App):
         if self.practice_mode and level >= PRACTICE_TYPEIN_LEVEL:
             mode_label = "ordered" if self.ordered_practice else "practice"
             header = (
-                f"{card['deck']} > {card['los_id']}  {progress}"
+                f"{card['deck']} > {card['section_id']}  {progress}"
                 f"  ({mode_label} — type-in)"
             )
             self.query_one("#card-header", Static).update(header)
@@ -390,7 +390,7 @@ class GenerationReviewApp(App):
         elif self.practice_mode:
             mode_label = "ordered" if self.ordered_practice else "practice"
             header = (
-                f"{card['deck']} > {card['los_id']}  {progress}"
+                f"{card['deck']} > {card['section_id']}  {progress}"
                 f"  ({mode_label} — level {level}/{MAX_MASKING_LEVEL})"
             )
             self.query_one("#card-header", Static).update(header)
@@ -399,7 +399,7 @@ class GenerationReviewApp(App):
             self.query_one("#masked-text", Static).update(masked)
         else:
             header = (
-                f"{card['deck']} > {card['los_id']}  {progress}"
+                f"{card['deck']} > {card['section_id']}  {progress}"
                 f"  (generation — level {level}/{MAX_MASKING_LEVEL})"
             )
             self.query_one("#card-header", Static).update(header)
@@ -424,7 +424,7 @@ class GenerationReviewApp(App):
         """Display a recall-phase card with bare question."""
         card = item.card
         progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
-        header = f"{card['deck']} > {card['los_id']}  {progress}  (recall)"
+        header = f"{card['deck']} > {card['section_id']}  {progress}  (recall)"
         self.query_one("#card-header", Static).update(header)
         self.query_one("#question", Static).update(card["question"])
         self.query_one("#masked-text", Static).update("")
