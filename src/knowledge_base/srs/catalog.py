@@ -133,7 +133,18 @@ def build_tree(
         key = (row["deck"], row["topic_id"], row["source"])
         source_sections.setdefault(key, []).append(row)
 
-    for (deck_name, topic_id, source), sections in source_sections.items():
+    def _topic_sort_key(key):
+        """Sort topics numerically: (deck, topic_id_int, source)."""
+        deck_name, topic_id, source = key
+        try:
+            tid = int(topic_id)
+        except ValueError:
+            tid = 0
+        return (deck_name, tid, source)
+
+    for (deck_name, topic_id, source), sections in sorted(
+        source_sections.items(), key=lambda kv: _topic_sort_key(kv[0])
+    ):
         # --- Deck node ---
         if deck_name not in deck_nodes:
             deck_nodes[deck_name] = CatalogNode(
@@ -277,7 +288,7 @@ class CatalogScreen(Screen):
         Binding("m", "launch_massed", "Massed Practice"),
         Binding("o", "launch_ordered", "Ordered Practice"),
         Binding("q", "quit_catalog", "Quit"),
-        Binding("space", "toggle_select", "Select", show=False),
+        Binding("space", "toggle_select", "Select", show=False, priority=True),
     ]
 
     def __init__(
