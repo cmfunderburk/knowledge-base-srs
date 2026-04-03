@@ -26,19 +26,26 @@ uv run review --stats                # stats screen only
 uv run review --limit N              # cap session size
 uv run review --difficulty-modifier  # enable outlier difficulty bonus
 
-# Generation cards (CFA LOS)
+# Generation cards (CFA LOS + multi-source)
 uv run gen-import                       # import LOS → data/srs.db
-uv run review-gen [deck]                # launch generation card review TUI
+uv run gen-import-md <file> --deck D --topic T --source S  # import markdown
+uv run gen-import-md <file> ... --preview  # preview parse without importing
+uv run review-gen                       # launch catalog TUI (browse & select)
+uv run review-gen [deck]                # launch with deck filter
 uv run review-gen --stats               # stats screen only
 uv run review-gen --limit N             # cap session size
-uv run review-gen --practice 36         # massed practice: single reading
-uv run review-gen --practice 1-5        # massed practice: reading range
-uv run review-gen --practice 1,3,5      # massed practice: specific readings
-uv run review-gen --practice all        # massed practice: all readings
-uv run review-gen --ordered-practice 36   # ordered practice: single reading
-uv run review-gen --ordered-practice 1-5  # ordered practice: reading range
-uv run review-gen --ordered-practice 1,3,5 # ordered practice: specific readings
-uv run review-gen --ordered-practice all  # ordered practice: all readings
+uv run review-gen --practice 36         # massed practice: single reading (LOS)
+uv run review-gen --practice 1-5        # massed practice: reading range (LOS)
+uv run review-gen --practice 1,3,5      # massed practice: specific readings (LOS)
+uv run review-gen --practice all        # massed practice: all readings (LOS)
+uv run review-gen --ordered-practice 36   # ordered practice: single reading (LOS)
+uv run review-gen --ordered-practice 1-5  # ordered practice: reading range (LOS)
+uv run review-gen --ordered-practice 1,3,5 # ordered practice: specific readings (LOS)
+uv run review-gen --ordered-practice all  # ordered practice: all readings (LOS)
+uv run review-gen --source S --topic T --ordered-practice  # source-filtered practice
+uv run review-gen --source S --section X --ordered-practice  # section-filtered practice
+uv run review-gen --paste               # paste text for ephemeral drill
+uv run review-gen --paste --save-as N --deck D --topic T --source S  # persist pasted text
 
 # Anki export (sharing/backup)
 uv run build-deck <deck_key>         # generate .apkg from CSVs
@@ -82,9 +89,11 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 
 ### Generation cards (`srs/`)
 - `fsrs.py` — standard FSRS v6 scheduler (4-button: Again/Hard/Good/Easy), independent from `scheduler.py`
-- `generation_db.py` — `generation_cards` and `generation_review_log` tables, CRUD
+- `generation_db.py` — `generation_cards` and `generation_review_log` tables, CRUD, schema v2 (source/section_id/card_index)
 - `generation_import.py` — JSON LOS data → SQLite card population
-- `generation_tui.py` — Textual TUI for generation card review (separate from `tui.py`)
+- `md_importer.py` — markdown parser (section-keyed + LOS-keyed formats) and `gen-import-md` CLI
+- `catalog.py` — `CatalogNode` tree builder and `CatalogScreen` Textual widget for browsing/selecting material
+- `generation_tui.py` — Textual TUI for generation card review, catalog entry point, paste-and-drill (separate from `tui.py`)
 - `masking.py` — letter-level masking algorithm (3 levels: 30%, 60%, first-letter-only)
 - `text_scoring.py` — token-level Levenshtein comparison for feedback display
 
@@ -120,11 +129,16 @@ srs-import → data/srs.db → review TUI    build-deck → .apkg (Anki export)
 - **Difficulty modifier** is off by default (`--difficulty-modifier` to enable).
 - **23 tunable parameters** in `scheduler.py` — all documented with role and rationale. See `docs/superpowers/specs/2026-03-29-continuous-fsrs-scheduler-design.md` for full spec.
 
-### Generation cards (CFA LOS)
+### Generation cards (CFA LOS + multi-source)
+- **Multi-source hierarchy**: deck → topic (reading) → source (los/official/schweser/custom) → section → cards. Schema v2 unique key: `(deck, source, topic_id, section_id, card_index)`.
+- **Catalog TUI**: default entry when running bare `review-gen`. Tree browser with multi-select at any level, launches massed or ordered practice.
+- **Markdown import** (`gen-import-md`): parses section-keyed (`- 1.2: Title`) and LOS-keyed (`### LOS 1.a`) markdown into cards. Auto-detects format.
+- **Paste-and-drill** (`--paste`): ephemeral text memorization. Sentence or line splitting. `--save-as` to persist.
 - **Two review modes**: global review (masking → graduation → FSRS) and massed practice (transient, no DB writes)
 - **Global review lifecycle**: generation phase (3 masking levels, queue-based spacing) → graduation (2 consecutive passes at max masking) → recall phase (standard FSRS v6 with Again/Hard/Good/Easy)
 - **Massed practice** (`--practice`): in-memory only, no persistent state changes. Cards progress through masking levels → full type-in, then re-queue at end of deck. Filter by reading number(s).
 - **Ordered practice** (`--ordered-practice`): like massed practice but cards cycle in fixed LOS order (ring buffer). Pass/fail affects masking level but not queue position — card always goes to back. User drills until they quit.
+- **Source-filtered practice**: `--source S --topic T --ordered-practice` drills cards from a specific source. Without `--source`, defaults to LOS cards for backwards compatibility.
 - **Standard FSRS v6** (`fsrs.py`): completely independent from `scheduler.py`. Published default weights `W[0..18]`, 4-button discrete grading. Used only for recall phase.
 - **Regression rule**: recall-phase cards that get Again with interval < 24h demote back to generation at level 2.
 - **LOS data**: `data/cfa_level1_los.json` — 225 statements across 48 CFA Level I readings. Not gitignored (checked in).
