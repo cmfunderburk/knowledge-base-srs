@@ -55,11 +55,18 @@ def _parse_reading_spec(spec: str) -> list[str]:
     return topic_ids
 
 
-def _section_sort_key(card: dict) -> tuple[int, str]:
-    """Sort key for natural section ordering: (reading_number, suffix)."""
+def _section_sort_key(card: dict) -> tuple[str, int, str, int]:
+    """Sort key for natural ordering across sources: (source, reading_num, suffix, card_index)."""
     section_id = card["section_id"]
+    source = card.get("source", "los")
+    card_index = card.get("card_index", 0)
     parts = section_id.split(".", 1)
-    return (int(parts[0]), parts[1] if len(parts) > 1 else "")
+    try:
+        reading_num = int(parts[0])
+    except ValueError:
+        reading_num = 0
+    suffix = parts[1] if len(parts) > 1 else ""
+    return (source, reading_num, suffix, card_index)
 
 
 def split_paste_text(text: str, split_by: str = "sentence") -> list[str]:
@@ -518,28 +525,39 @@ class GenerationReviewApp(App):
         else:
             self._show_recall_card(item)
 
+    def _card_location(self, card: dict) -> str:
+        """Build the location portion of the header from card metadata."""
+        source = card.get("source", "los")
+        section_id = card["section_id"]
+        section_title = card.get("section_title")
+        deck = card["deck"]
+
+        if source == "los":
+            return f"{deck} > {section_id}"
+        elif section_title:
+            return f"{deck} > {source} > {section_id}: {section_title}"
+        else:
+            return f"{deck} > {source} > LOS {section_id}"
+
     def _show_generation_card(self, item: QueueItem) -> None:
         """Display a generation-phase card with masked text."""
         card = item.card
         level = card["masking_level"]
         card_id_str = str(card["card_id"])
 
-        remaining = len(self.queue) + 1  # +1 for current
         progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
+        location = self._card_location(card)
 
         if self.practice_mode and level >= PRACTICE_TYPEIN_LEVEL:
             mode_label = "ordered" if self.ordered_practice else "practice"
-            header = (
-                f"{card['deck']} > {card['section_id']}  {progress}"
-                f"  ({mode_label} — type-in)"
-            )
+            header = f"{location}  {progress}  ({mode_label} — type-in)"
             self.query_one("#card-header", Static).update(header)
             self.query_one("#question", Static).update(card["question"])
             self.query_one("#masked-text", Static).update("")
         elif self.practice_mode:
             mode_label = "ordered" if self.ordered_practice else "practice"
             header = (
-                f"{card['deck']} > {card['section_id']}  {progress}"
+                f"{location}  {progress}"
                 f"  ({mode_label} — level {level}/{MAX_MASKING_LEVEL})"
             )
             self.query_one("#card-header", Static).update(header)
@@ -548,7 +566,7 @@ class GenerationReviewApp(App):
             self.query_one("#masked-text", Static).update(masked)
         else:
             header = (
-                f"{card['deck']} > {card['section_id']}  {progress}"
+                f"{location}  {progress}"
                 f"  (generation — level {level}/{MAX_MASKING_LEVEL})"
             )
             self.query_one("#card-header", Static).update(header)
@@ -573,7 +591,8 @@ class GenerationReviewApp(App):
         """Display a recall-phase card with bare question."""
         card = item.card
         progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
-        header = f"{card['deck']} > {card['section_id']}  {progress}  (recall)"
+        location = self._card_location(card)
+        header = f"{location}  {progress}  (recall)"
         self.query_one("#card-header", Static).update(header)
         self.query_one("#question", Static).update(card["question"])
         self.query_one("#masked-text", Static).update("")

@@ -21,10 +21,21 @@ from knowledge_base.srs.generation_tui import (
 
 class TestSectionSortKey:
     def test_single_digit_reading(self):
-        assert _section_sort_key({"section_id": "1.a"}) == (1, "a")
+        assert _section_sort_key({"section_id": "1.a"}) == ("los", 1, "a", 0)
 
     def test_double_digit_reading(self):
-        assert _section_sort_key({"section_id": "10.b"}) == (10, "b")
+        assert _section_sort_key({"section_id": "10.b"}) == ("los", 10, "b", 0)
+
+    def test_multi_source_ordering(self):
+        """Cards from different sources sort by source first, then reading/suffix."""
+        cards = [
+            {"section_id": "1.a", "source": "schweser", "card_index": 0},
+            {"section_id": "1.a", "source": "los", "card_index": 0},
+            {"section_id": "1.a", "source": "official", "card_index": 1},
+            {"section_id": "1.a", "source": "official", "card_index": 0},
+        ]
+        sorted_sources = [(c["source"], c.get("card_index", 0)) for c in sorted(cards, key=_section_sort_key)]
+        assert sorted_sources == [("los", 0), ("official", 0), ("official", 1), ("schweser", 0)]
 
     def test_natural_order_across_readings(self):
         """Sorting by key puts 2.a before 10.a (not lexicographic '10' < '2')."""
