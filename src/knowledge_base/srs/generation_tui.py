@@ -726,13 +726,14 @@ class GenerationReviewApp(App):
         """Handle a Pass grade for a generation-phase card."""
         item = self._current_item
         card = item.card
-        now_str = datetime.now(timezone.utc).isoformat()
         level = card["masking_level"]
-        elapsed_days = self._elapsed_days(card)
 
         if self.practice_mode:
             self._handle_practice_pass(item, card, level)
             return
+
+        now_str = datetime.now(timezone.utc).isoformat()
+        elapsed_days = self._elapsed_days(card)
 
         if level < MAX_MASKING_LEVEL:
             # Advance masking level, re-queue
