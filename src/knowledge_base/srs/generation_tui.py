@@ -573,6 +573,25 @@ class GenerationReviewApp(App):
         progress = f"[{self.total_reviewed + 1}/{self.total_cards}]"
         location = self._card_location(card)
 
+        # Exact-answer cards: show question, no masking, prompt for typed answer
+        if card.get("card_type") == "exact":
+            mode_label = "ordered" if self.ordered_practice else "practice"
+            header = f"{location}  {progress}  ({mode_label} — exact)"
+            self.query_one("#card-header", Static).update(header)
+            self.query_one("#question", Static).update(card["question"])
+            self.query_one("#masked-text", Static).update("")
+            self.query_one("#result", Static).update("")
+            self.query_one("#stats-display", Static).update("")
+            self._awaiting_gen_grade = False
+            self._awaiting_recall_grade = False
+            self.showing_stats = False
+            inp = self.query_one("#answer-input", Input)
+            inp.display = True
+            inp.value = ""
+            inp.placeholder = "Type the answer..."
+            inp.focus()
+            return
+
         if self.practice_mode and level >= PRACTICE_TYPEIN_LEVEL:
             mode_label = "ordered" if self.ordered_practice else "practice"
             header = f"{location}  {progress}  ({mode_label} — type-in)"
@@ -660,6 +679,12 @@ class GenerationReviewApp(App):
 
         card = self._current_item.card
         phase = card["phase"]
+
+        if card.get("card_type") == "exact":
+            from knowledge_base.srs.text_scoring import check_exact_answer
+            correct = check_exact_answer(text, card["answer"])
+            self._handle_exact_answer(correct, text)
+            return
 
         # Tokenize and compare
         typed_tokens = tokenize(text)
@@ -901,6 +926,52 @@ class GenerationReviewApp(App):
 
         self._finish_review()
         self._requeue(item, 1)
+
+    def _handle_exact_answer(self, correct: bool, typed: str) -> None:
+        """Handle an exact-answer card result — auto pass/fail."""
+        item = self._current_item
+        card = item.card
+        card_id = card["card_id"]
+
+        if correct:
+            count = self._pass_counts.get(card_id, 0) + 1
+            self._pass_counts[card_id] = count
+
+            if count >= 3:
+                pass_label = f"  [green]Pass {count}[/]"
+            else:
+                pass_label = f"  Pass {count}"
+
+            lines = [
+                "[green]Correct![/]",
+                "",
+                f"[dim]Answer:[/] {card['answer']}",
+                pass_label,
+            ]
+            self.query_one("#result", Static).update("\n".join(lines))
+            self._hide_input()
+            self._finish_review()
+            if self.ordered_practice:
+                self._requeue(item)
+            else:
+                pos = massed_requeue_position(
+                    passed=True, pass_count=count, queue_len=len(self.queue),
+                )
+                self._requeue(item, pos)
+        else:
+            lines = [
+                "[red]Incorrect[/]",
+                "",
+                f"[dim]Expected:[/] {card['answer']}",
+                f"[dim]You typed:[/] {typed}",
+            ]
+            self.query_one("#result", Static).update("\n".join(lines))
+            self._hide_input()
+            self._finish_review()
+            if self.ordered_practice:
+                self._requeue(item)
+            else:
+                self._requeue(item, 1)
 
     def _graduate_card(
         self, card: dict, now_str: str, elapsed_days: float
