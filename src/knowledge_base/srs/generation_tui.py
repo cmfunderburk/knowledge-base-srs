@@ -224,6 +224,7 @@ class GenerationReviewApp(App):
         ordered_practice: str | None = None,
         source_filter: str | None = None,
         section_filter: str | None = None,
+        topic_filter: str | None = None,
         catalog_card_ids: list[int] | None = None,
         show_catalog: bool = False,
         paste_cards: list[dict] | None = None,
@@ -238,6 +239,7 @@ class GenerationReviewApp(App):
         self.ordered_practice = ordered_practice is not None
         self.source_filter = source_filter
         self.section_filter = section_filter
+        self.topic_filter = topic_filter
         self.catalog_card_ids = catalog_card_ids
         self.show_catalog = show_catalog
         self.paste_cards = paste_cards
@@ -419,8 +421,8 @@ class GenerationReviewApp(App):
     def _build_source_filter_queue(self) -> None:
         """Build a practice queue from --source (with optional --topic/--section)."""
         topic_ids = None
-        if self.practice_spec and self.practice_spec != "all":
-            topic_ids = _parse_reading_spec(self.practice_spec)
+        if self.topic_filter and self.topic_filter != "all":
+            topic_ids = _parse_reading_spec(self.topic_filter)
 
         section_ids = None
         if self.section_filter:
@@ -434,8 +436,11 @@ class GenerationReviewApp(App):
             deck=self.deck_filter,
         )
         self.practice_mode = True
-        self.ordered_practice = False
-        self.TITLE = "Massed Practice"
+        if self.ordered_practice:
+            cards.sort(key=_section_sort_key)
+            self.TITLE = "Ordered Practice"
+        else:
+            self.TITLE = "Massed Practice"
         for c in cards:
             practice_card = dict(c)
             practice_card["phase"] = "generation"
@@ -1257,9 +1262,10 @@ def main() -> None:
             deck=args.deck,
             limit=args.limit,
             stats_only=False,
-            practice=args.topic,   # topic spec reuses reading-spec parsing
+            ordered_practice=args.ordered_practice,
             source_filter=args.source,
             section_filter=args.section,
+            topic_filter=args.topic,
         )
         app.run()
         return
