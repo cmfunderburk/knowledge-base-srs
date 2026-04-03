@@ -559,6 +559,21 @@ def get_cards_by_source(
     return [dict(row) for row in rows]
 
 
+def get_cards_by_ids(conn: sqlite3.Connection, card_ids: list[int]) -> list[dict]:
+    """Return all cards matching the given card_ids.
+
+    Used by the catalog TUI to load cards selected by the user from
+    the catalog tree.  Returns cards in the order they appear in the
+    database (by card_id), regardless of phase or scheduling state.
+    """
+    if not card_ids:
+        return []
+    placeholders = ", ".join("?" * len(card_ids))
+    sql = f"SELECT * FROM generation_cards WHERE card_id IN ({placeholders})"
+    rows = conn.execute(sql, card_ids).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_catalog_tree(
     conn: sqlite3.Connection,
     deck: str | None = None,

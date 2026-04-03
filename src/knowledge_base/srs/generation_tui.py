@@ -17,10 +17,13 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Footer, Header, Input, Static
 
+from knowledge_base.srs.catalog import CatalogScreen
 from knowledge_base.srs.fsrs import Grade, SchedulingResult, schedule
 from knowledge_base.srs.generation_db import (
     get_all_generation_cards,
+    get_cards_by_ids,
     get_cards_by_readings,
+    get_cards_by_source,
     get_due_generation_cards,
     get_generation_phase_cards,
     init_generation_db,
@@ -183,6 +186,10 @@ class GenerationReviewApp(App):
         stats_only: bool = False,
         practice: str | None = None,
         ordered_practice: str | None = None,
+        source_filter: str | None = None,
+        section_filter: str | None = None,
+        catalog_card_ids: list[int] | None = None,
+        show_catalog: bool = False,
     ) -> None:
         super().__init__()
         self.db_path = db_path
@@ -192,6 +199,10 @@ class GenerationReviewApp(App):
         self.practice_mode = practice is not None or ordered_practice is not None
         self.practice_spec = practice or ordered_practice  # "all", "5", "1-5", etc.
         self.ordered_practice = ordered_practice is not None
+        self.source_filter = source_filter
+        self.section_filter = section_filter
+        self.catalog_card_ids = catalog_card_ids
+        self.show_catalog = show_catalog
         self.conn = None
         self.queue: deque[QueueItem] = deque()
         self.total_reviewed: int = 0
@@ -230,6 +241,30 @@ class GenerationReviewApp(App):
         if self.stats_only:
             self._show_stats_screen()
             return
+        if self.show_catalog:
+            self.push_screen(
+                CatalogScreen(self.conn, self.deck_filter),
+                callback=self._on_catalog_result,
+            )
+            return
+        if self.catalog_card_ids is not None:
+            self._build_catalog_queue(
+                self.catalog_card_ids, ordered=self.ordered_practice,
+            )
+            self.total_cards = len(self.queue)
+            if not self.queue:
+                self._show_empty()
+                return
+            self._show_next()
+            return
+        if self.source_filter is not None:
+            self._build_source_filter_queue()
+            self.total_cards = len(self.queue)
+            if not self.queue:
+                self._show_empty()
+                return
+            self._show_next()
+            return
         if self.practice_mode:
             if self.ordered_practice:
                 self._build_ordered_practice_queue()
@@ -241,13 +276,17 @@ class GenerationReviewApp(App):
             self._build_queue()
         self.total_cards = len(self.queue)
         if not self.queue:
-            self.query_one("#card-header", Static).update("No cards due")
-            self.query_one("#question", Static).update(
-                "All caught up! Press Ctrl+Q to quit."
-            )
-            self._hide_input()
+            self._show_empty()
             return
         self._show_next()
+
+    def _show_empty(self) -> None:
+        """Display the 'no cards' message."""
+        self.query_one("#card-header", Static).update("No cards due")
+        self.query_one("#question", Static).update(
+            "All caught up! Press Ctrl+Q to quit."
+        )
+        self._hide_input()
 
     # ------------------------------------------------------------------
     # Queue management
@@ -280,6 +319,69 @@ class GenerationReviewApp(App):
                 self.conn, topic_ids=topic_ids, deck=self.deck_filter,
             )
         cards.sort(key=_section_sort_key)
+        for c in cards:
+            practice_card = dict(c)
+            practice_card["phase"] = "generation"
+            practice_card["masking_level"] = 0
+            practice_card["consecutive_max_passes"] = 0
+            self.queue.append(QueueItem(card=practice_card, delay=0))
+
+    def _on_catalog_result(self, result) -> None:
+        """Callback from CatalogScreen dismiss — build queue from selected cards."""
+        if result is None:
+            self.exit()
+            return
+        mode, card_ids = result
+        ordered = mode == "ordered"
+        self.practice_mode = True
+        self.ordered_practice = ordered
+        self.TITLE = "Ordered Practice" if ordered else "Massed Practice"
+        self._build_catalog_queue(card_ids, ordered=ordered)
+        self.total_cards = len(self.queue)
+        if self.queue:
+            self._show_next()
+        else:
+            self._show_empty()
+
+    def _build_catalog_queue(
+        self, card_ids: list[int], ordered: bool = False,
+    ) -> None:
+        """Build a practice queue from explicit card IDs (catalog selection)."""
+        cards = get_cards_by_ids(self.conn, card_ids)
+        if ordered:
+            cards.sort(key=_section_sort_key)
+            self.TITLE = "Ordered Practice"
+        else:
+            self.TITLE = "Massed Practice"
+        self.practice_mode = True
+        self.ordered_practice = ordered
+        for c in cards:
+            practice_card = dict(c)
+            practice_card["phase"] = "generation"
+            practice_card["masking_level"] = 0
+            practice_card["consecutive_max_passes"] = 0
+            self.queue.append(QueueItem(card=practice_card, delay=0))
+
+    def _build_source_filter_queue(self) -> None:
+        """Build a practice queue from --source (with optional --topic/--section)."""
+        topic_ids = None
+        if self.practice_spec and self.practice_spec != "all":
+            topic_ids = _parse_reading_spec(self.practice_spec)
+
+        section_ids = None
+        if self.section_filter:
+            section_ids = [s.strip() for s in self.section_filter.split(",")]
+
+        cards = get_cards_by_source(
+            self.conn,
+            source=self.source_filter,
+            topic_ids=topic_ids,
+            section_ids=section_ids,
+            deck=self.deck_filter,
+        )
+        self.practice_mode = True
+        self.ordered_practice = False
+        self.TITLE = "Massed Practice"
         for c in cards:
             practice_card = dict(c)
             practice_card["phase"] = "generation"
@@ -969,7 +1071,59 @@ def main() -> None:
              "Specify readings: 'all', '36', '1-5', '1,3,5'. "
              "No persistent state changes.",
     )
+    parser.add_argument(
+        "--source", default=None,
+        help="Filter by source (e.g. 'los', 'markdown'). "
+             "Launches massed practice with matching cards.",
+    )
+    parser.add_argument(
+        "--topic", default=None, metavar="READINGS",
+        help="Filter by topic (reading spec syntax: '5', '1-5', '1,3,5'). "
+             "Used with --source.",
+    )
+    parser.add_argument(
+        "--section", default=None,
+        help="Filter by section ID(s), comma-separated. "
+             "Used with --source.",
+    )
+    parser.add_argument(
+        "--paste", action="store_true",
+        help="Paste-and-drill mode (not yet implemented).",
+    )
+    parser.add_argument(
+        "--save-as", default=None,
+        help="Save pasted content with this name (used with --paste).",
+    )
+    parser.add_argument(
+        "--split-by", choices=["sentence", "line"], default="sentence",
+        help="How to split pasted text into cards (default: sentence).",
+    )
     args = parser.parse_args()
+
+    # Determine whether to show the catalog as the entry screen.
+    # Catalog is the default when no explicit mode flags are provided.
+    has_explicit_mode = (
+        args.practice is not None
+        or args.ordered_practice is not None
+        or args.paste
+        or args.stats
+        or args.source is not None
+    )
+    show_catalog = not has_explicit_mode
+
+    # --source shortcut: load cards by source directly, skip catalog
+    if args.source is not None:
+        app = GenerationReviewApp(
+            db_path=args.db,
+            deck=args.deck,
+            limit=args.limit,
+            stats_only=False,
+            practice=args.topic,   # topic spec reuses reading-spec parsing
+            source_filter=args.source,
+            section_filter=args.section,
+        )
+        app.run()
+        return
 
     app = GenerationReviewApp(
         db_path=args.db,
@@ -978,5 +1132,6 @@ def main() -> None:
         stats_only=args.stats,
         practice=args.practice,
         ordered_practice=args.ordered_practice,
+        show_catalog=show_catalog,
     )
     app.run()
