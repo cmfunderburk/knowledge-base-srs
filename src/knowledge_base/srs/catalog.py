@@ -222,6 +222,8 @@ def build_tree(
 
     for deck_name, deck_node in deck_nodes.items():
         deck_node.card_count = sum(t.card_count for t in deck_node.children)
+        # Sort topics alphabetically within each deck
+        deck_node.children.sort(key=lambda n: n.label.lower())
 
     return list(deck_nodes.values())
 
