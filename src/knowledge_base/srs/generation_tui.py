@@ -699,14 +699,25 @@ class GenerationReviewApp(App):
 
     def _show_generation_feedback(self, diff_markup: str) -> None:
         """Show diff and prompt for pass/fail."""
+        card = self._current_item.card
+        card_id = card["card_id"]
+        count = self._pass_counts.get(card_id, 0)
+
         lines = [
             diff_markup,
             "",
             "[dim]Correct:[/]",
-            f"  {self._current_item.card['answer']}",
-            "",
-            "[bold]Space/Enter[/] = Pass    [bold]f[/] = Fail",
+            f"  {card['answer']}",
         ]
+
+        if card["masking_level"] >= PRACTICE_TYPEIN_LEVEL and count > 0:
+            if count >= 3:
+                lines.append(f"  [green]Pass {count}[/]")
+            else:
+                lines.append(f"  Pass {count}")
+
+        lines.append("")
+        lines.append("[bold]Space/Enter[/] = Pass    [bold]f[/] = Fail")
         self.query_one("#result", Static).update("\n".join(lines))
         self._awaiting_gen_grade = True
         self._hide_input()
