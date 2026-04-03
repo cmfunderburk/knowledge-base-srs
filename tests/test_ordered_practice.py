@@ -6,8 +6,6 @@ import json
 
 import pytest
 
-from collections import deque
-
 from knowledge_base.srs.generation_db import init_generation_db
 from knowledge_base.srs.generation_import import import_los
 from knowledge_base.srs.generation_tui import (
@@ -110,14 +108,6 @@ class TestOrderedPracticeQueue:
         section_ids = [item.card["section_id"] for item in ordered_app.queue]
         assert section_ids == ["1.a", "1.b", "1.c", "2.a", "2.b"]
 
-    def test_all_delays_are_zero(self, ordered_app):
-        """All items in ordered queue should have delay=0."""
-        ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
-        ordered_app._build_ordered_practice_queue()
-
-        for item in ordered_app.queue:
-            assert item.delay == 0
-
     def test_all_cards_start_at_level_0(self, ordered_app):
         """All cards in ordered practice start at generation level 0."""
         ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
@@ -129,13 +119,13 @@ class TestOrderedPracticeQueue:
 
 
 class TestOrderedPracticeRequeue:
-    def test_pass_requeues_at_end_with_zero_delay(self, ordered_app):
-        """In ordered mode, pass should always requeue with delay=0."""
+    def test_pass_requeues_at_end(self, ordered_app):
+        """In ordered mode, pass should always requeue at the end."""
         ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
         ordered_app._build_ordered_practice_queue()
 
         # Pop the first item (1.a) and simulate a pass at level 0
-        item = ordered_app.queue.popleft()
+        item = ordered_app.queue.pop(0)
         ordered_app._current_item = item
         card = item.card
         card["masking_level"] = 0
@@ -146,16 +136,15 @@ class TestOrderedPracticeRequeue:
         # Card should be at the back of the queue
         last_item = ordered_app.queue[-1]
         assert last_item.card["section_id"] == "1.a"
-        assert last_item.delay == 0
         assert last_item.card["masking_level"] == 1
 
-    def test_fail_requeues_at_end_with_zero_delay(self, ordered_app):
-        """In ordered mode, fail should always requeue with delay=0."""
+    def test_fail_requeues_at_end(self, ordered_app):
+        """In ordered mode, fail should always requeue at the end."""
         ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
         ordered_app._build_ordered_practice_queue()
 
         # Pop the first item and simulate a fail at level 1
-        item = ordered_app.queue.popleft()
+        item = ordered_app.queue.pop(0)
         ordered_app._current_item = item
         card = item.card
         card["masking_level"] = 1
@@ -163,10 +152,9 @@ class TestOrderedPracticeRequeue:
         ordered_app._show_next = lambda: None
         ordered_app._handle_generation_fail()
 
-        # Card should be at the back with delay=0
+        # Card should be at the back
         last_item = ordered_app.queue[-1]
         assert last_item.card["section_id"] == "1.a"
-        assert last_item.delay == 0
         assert last_item.card["masking_level"] == 0
 
     def test_order_preserved_after_multiple_reviews(self, ordered_app):
@@ -178,18 +166,18 @@ class TestOrderedPracticeRequeue:
 
         # Simulate reviewing all 5 cards: pop front, push to back
         for _ in range(5):
-            item = ordered_app.queue.popleft()
-            ordered_app.queue.append(QueueItem(card=item.card, delay=0))
+            item = ordered_app.queue.pop(0)
+            ordered_app.queue.append(QueueItem(card=item.card))
 
         after_cycle = [item.card["section_id"] for item in ordered_app.queue]
         assert after_cycle == original_order
 
-    def test_typein_pass_requeues_at_end_with_zero_delay(self, ordered_app):
-        """Type-in level pass in ordered mode also re-queues with delay=0."""
+    def test_typein_pass_requeues_at_end(self, ordered_app):
+        """Type-in level pass in ordered mode also re-queues at end."""
         ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
         ordered_app._build_ordered_practice_queue()
 
-        item = ordered_app.queue.popleft()
+        item = ordered_app.queue.pop(0)
         ordered_app._current_item = item
         card = item.card
         card["masking_level"] = PRACTICE_TYPEIN_LEVEL
@@ -199,14 +187,13 @@ class TestOrderedPracticeRequeue:
 
         last_item = ordered_app.queue[-1]
         assert last_item.card["section_id"] == "1.a"
-        assert last_item.delay == 0
 
-    def test_max_masking_pass_requeues_at_end_with_zero_delay(self, ordered_app):
-        """Pass at max masking in ordered mode re-queues with delay=0."""
+    def test_max_masking_pass_requeues_at_end(self, ordered_app):
+        """Pass at max masking in ordered mode re-queues at end."""
         ordered_app.conn = init_generation_db(db_path=ordered_app.db_path)
         ordered_app._build_ordered_practice_queue()
 
-        item = ordered_app.queue.popleft()
+        item = ordered_app.queue.pop(0)
         ordered_app._current_item = item
         card = item.card
         card["masking_level"] = MAX_MASKING_LEVEL
@@ -217,7 +204,6 @@ class TestOrderedPracticeRequeue:
 
         last_item = ordered_app.queue[-1]
         assert last_item.card["section_id"] == "1.a"
-        assert last_item.delay == 0
 
 
 class TestOrderedPracticeHeader:

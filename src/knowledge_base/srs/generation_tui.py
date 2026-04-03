@@ -11,7 +11,6 @@ import argparse
 import random
 import re
 import sys
-from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -139,10 +138,9 @@ def massed_requeue_position(passed: bool, pass_count: int, queue_len: int) -> in
 
 @dataclass
 class QueueItem:
-    """Wraps a card dict with a delay counter for intra-session spacing."""
+    """Wraps a card dict for the review queue."""
 
     card: dict
-    delay: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -277,15 +275,16 @@ class GenerationReviewApp(App):
         self.paste_cards = paste_cards
         self.start_level = min(start_level, MAX_MASKING_LEVEL)
         self.conn = None
-        self.queue: deque[QueueItem] = deque()
+        self.queue: list[QueueItem] = []
         self.total_reviewed: int = 0
         self.total_cards: int = 0
+        self._pass_counts: dict[int, int] = {}
 
         # State machine
         self._awaiting_gen_grade: bool = False   # waiting for pass/fail
         self._awaiting_recall_grade: bool = False  # waiting for 1/2/3/4
         self._awaiting_advance: bool = False      # waiting for space/enter to advance
-        self._pending_requeue: tuple[QueueItem, int] | None = None  # (item, delay)
+        self._pending_requeue: tuple[QueueItem, int] | None = None  # (item, position)
         self._current_item: QueueItem | None = None
         self._last_diff_markup: str = ""
         self.showing_stats: bool = False
@@ -388,10 +387,10 @@ class GenerationReviewApp(App):
             practice_card["phase"] = "generation"
             practice_card["masking_level"] = self.start_level
             practice_card["consecutive_max_passes"] = 0
-            self.queue.append(QueueItem(card=practice_card, delay=0))
+            self.queue.append(QueueItem(card=practice_card))
 
     def _build_ordered_practice_queue(self) -> None:
-        """Build queue for ordered practice: cards in natural LOS order, all delay=0."""
+        """Build queue for ordered practice: cards in natural LOS order."""
         if self.practice_spec == "all":
             cards = get_all_generation_cards(self.conn, deck=self.deck_filter)
         else:
@@ -405,7 +404,7 @@ class GenerationReviewApp(App):
             practice_card["phase"] = "generation"
             practice_card["masking_level"] = self.start_level
             practice_card["consecutive_max_passes"] = 0
-            self.queue.append(QueueItem(card=practice_card, delay=0))
+            self.queue.append(QueueItem(card=practice_card))
 
     def _on_catalog_result(self, result) -> None:
         """Callback from CatalogScreen dismiss — build queue from selected cards."""
@@ -441,7 +440,7 @@ class GenerationReviewApp(App):
             practice_card["phase"] = "generation"
             practice_card["masking_level"] = self.start_level
             practice_card["consecutive_max_passes"] = 0
-            self.queue.append(QueueItem(card=practice_card, delay=0))
+            self.queue.append(QueueItem(card=practice_card))
 
     def _build_paste_queue(self, cards: list[dict]) -> None:
         """Build queue from pre-built ephemeral card dicts (paste mode)."""
@@ -449,7 +448,7 @@ class GenerationReviewApp(App):
         self.ordered_practice = False
         self.TITLE = "Paste Drill"
         for c in cards:
-            self.queue.append(QueueItem(card=dict(c), delay=0))
+            self.queue.append(QueueItem(card=dict(c)))
 
     def _build_source_filter_queue(self) -> None:
         """Build a practice queue from --source (with optional --topic/--section)."""
@@ -479,7 +478,7 @@ class GenerationReviewApp(App):
             practice_card["phase"] = "generation"
             practice_card["masking_level"] = self.start_level
             practice_card["consecutive_max_passes"] = 0
-            self.queue.append(QueueItem(card=practice_card, delay=0))
+            self.queue.append(QueueItem(card=practice_card))
 
     def _build_queue(self) -> None:
         """Build the initial session queue from due recall + generation cards."""
@@ -491,7 +490,7 @@ class GenerationReviewApp(App):
             self.conn, as_of=now_str, deck=self.deck_filter, limit=limit,
         )
         for c in recall_cards:
-            self.queue.append(QueueItem(card=c, delay=0))
+            self.queue.append(QueueItem(card=c))
 
         remaining = None
         if limit is not None:
@@ -504,36 +503,24 @@ class GenerationReviewApp(App):
             self.conn, deck=self.deck_filter, limit=remaining,
         )
         for c in gen_cards:
-            self.queue.append(QueueItem(card=c, delay=0))
+            self.queue.append(QueueItem(card=c))
 
     def _pop_next(self) -> QueueItem | None:
-        """Pop the next reviewable item from the queue.
-
-        Finds the first item with delay <= 0. If all have delays > 0,
-        forces the front item.
-        """
+        """Pop the next item from the front of the queue."""
         if not self.queue:
             return None
+        return self.queue.pop(0)
 
-        # Find first ready item
-        for i, item in enumerate(self.queue):
-            if item.delay <= 0:
-                del self.queue[i]
-                return item
+    def _requeue(self, item: QueueItem, position: int | None = None) -> None:
+        """Re-add an item to the queue at the given position.
 
-        # Force the front item
-        return self.queue.popleft()
-
-    def _decrement_delays(self) -> None:
-        """Decrement delay counters after a review completes."""
-        for item in self.queue:
-            if item.delay > 0:
-                item.delay -= 1
-
-    def _requeue(self, item: QueueItem, delay: int) -> None:
-        """Re-add an item to the back of the queue with a new delay."""
-        item.delay = delay
-        self.queue.append(item)
+        For massed practice, position is calculated by massed_requeue_position.
+        For ordered practice, item goes to the end (position=None).
+        """
+        if position is None or position >= len(self.queue):
+            self.queue.append(item)
+        else:
+            self.queue.insert(position, item)
         self.total_cards += 1
 
     # ------------------------------------------------------------------
@@ -729,9 +716,9 @@ class GenerationReviewApp(App):
                 self._awaiting_advance = False
                 # Apply any pending re-queue
                 if self._pending_requeue is not None:
-                    item, delay = self._pending_requeue
+                    item, position = self._pending_requeue
                     self._pending_requeue = None
-                    self._requeue(item, delay)
+                    self._requeue(item, position)
                 self._advance_after_grade()
             return
 
@@ -821,13 +808,20 @@ class GenerationReviewApp(App):
         self, item: QueueItem, card: dict, level: int
     ) -> None:
         """Handle pass in practice mode — no DB writes, no graduation."""
+        card_id = card["card_id"]
+
         if level < MAX_MASKING_LEVEL:
             new_level = level + 1
             card["masking_level"] = new_level
             card["_practice_max_passes"] = 0
             self._finish_review()
-            delay = 0 if self.ordered_practice else new_level + 1
-            self._requeue(item, delay)
+            if self.ordered_practice:
+                self._requeue(item)
+            else:
+                pos = massed_requeue_position(
+                    passed=True, pass_count=0, queue_len=len(self.queue),
+                )
+                self._requeue(item, pos)
         elif level == MAX_MASKING_LEVEL:
             # Need 2 passes at max masking before advancing to type-in
             passes = card.get("_practice_max_passes", 0) + 1
@@ -836,17 +830,34 @@ class GenerationReviewApp(App):
                 card["masking_level"] = PRACTICE_TYPEIN_LEVEL
                 card["_practice_max_passes"] = 0
                 self._finish_review()
-                delay = 0 if self.ordered_practice else MAX_MASKING_LEVEL + 1
-                self._requeue(item, delay)
+                if self.ordered_practice:
+                    self._requeue(item)
+                else:
+                    pos = massed_requeue_position(
+                        passed=True, pass_count=0, queue_len=len(self.queue),
+                    )
+                    self._requeue(item, pos)
             else:
                 self._finish_review()
-                delay = 0 if self.ordered_practice else GRADUATION_GAP
-                self._requeue(item, delay)
+                if self.ordered_practice:
+                    self._requeue(item)
+                else:
+                    pos = massed_requeue_position(
+                        passed=True, pass_count=0, queue_len=len(self.queue),
+                    )
+                    self._requeue(item, pos)
         else:
-            # At type-in level — success, re-queue at end of deck
+            # Type-in level pass — increment pass counter
+            count = self._pass_counts.get(card_id, 0) + 1
+            self._pass_counts[card_id] = count
             self._finish_review()
-            delay = 0 if self.ordered_practice else len(self.queue)
-            self._requeue(item, delay)
+            if self.ordered_practice:
+                self._requeue(item)
+            else:
+                pos = massed_requeue_position(
+                    passed=True, pass_count=count, queue_len=len(self.queue),
+                )
+                self._requeue(item, pos)
 
     def _handle_generation_fail(self) -> None:
         """Handle a Fail grade for a generation-phase card."""
@@ -859,8 +870,10 @@ class GenerationReviewApp(App):
             card["consecutive_max_passes"] = 0
             card["_practice_max_passes"] = 0
             self._finish_review()
-            delay = 0 if self.ordered_practice else 1
-            self._requeue(item, delay)
+            if self.ordered_practice:
+                self._requeue(item)
+            else:
+                self._requeue(item, 1)
             return
 
         now_str = datetime.now(timezone.utc).isoformat()
@@ -1041,7 +1054,6 @@ class GenerationReviewApp(App):
         """Advance to the next card after the user has seen grade feedback."""
         self.total_reviewed += 1
         self._current_item = None
-        self._decrement_delays()
         self._show_next()
 
     def _finish_review(self) -> None:
@@ -1050,7 +1062,6 @@ class GenerationReviewApp(App):
         self._awaiting_gen_grade = False
         self._awaiting_recall_grade = False
         self._current_item = None
-        self._decrement_delays()
         self._show_next()
 
     # ------------------------------------------------------------------
