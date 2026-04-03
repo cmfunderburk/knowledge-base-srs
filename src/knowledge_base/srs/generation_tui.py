@@ -8,6 +8,7 @@ Two review modes in a single session:
 from __future__ import annotations
 
 import argparse
+import random
 import re
 import sys
 from collections import deque
@@ -100,6 +101,36 @@ PRACTICE_TYPEIN_LEVEL = 3    # virtual level for practice mode full type-in
 GRADUATION_PASSES = 2       # consecutive passes at max level to graduate
 GRADUATION_GAP = 5           # cards between graduation attempts
 REGRESSION_INTERVAL_THRESHOLD = 1.0  # days — regress if Again interval < this
+
+
+def massed_requeue_position(passed: bool, pass_count: int, queue_len: int) -> int:
+    """Calculate the position to insert a card in the massed practice queue.
+
+    Parameters
+    ----------
+    passed:
+        Whether the card was answered correctly.
+    pass_count:
+        Number of qualifying passes for this card in the session.
+        For masking cards, this is type-in passes only.
+        For exact cards, this is total correct answers.
+        A value of 0 means masking-level pass (uses 1st-pass range).
+    queue_len:
+        Current number of items in the queue.
+    """
+    if not passed:
+        return 1
+
+    if pass_count <= 1:
+        low, high = 2, 4
+    elif pass_count == 2:
+        low, high = 4, 8
+    else:
+        low, high = 8, 12
+
+    pos = random.randint(low, high)
+    return min(pos, queue_len)
+
 
 # ---------------------------------------------------------------------------
 # Queue item
