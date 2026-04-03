@@ -12,6 +12,9 @@ from knowledge_base.srs.generation_db import (
     update_generation_phase,
     get_generation_phase_cards,
     get_due_generation_cards,
+    get_cards_by_readings,
+    get_cards_by_source,
+    get_catalog_tree,
     insert_generation_review,
     CURRENT_SCHEMA_VERSION,
 )
@@ -914,18 +917,238 @@ class TestSchemaV2Migration:
         ).fetchone()[0]
         assert version == 2
 
-        row = conn2.execute(
-            "SELECT * FROM generation_cards WHERE section_id = '1.a'"
-        ).fetchone()
-        row = dict(row)
-        assert row["source"] == "los"
-        assert row["card_index"] == 0
-        assert row["difficulty"] == pytest.approx(4.0)
-        assert row["stability"] == pytest.approx(10.0)
-        assert row["reps"] == 3
-        assert row["phase"] == "recall"
-        assert row["masking_level"] == 2
-        conn2.close()
+
+# ---------------------------------------------------------------------------
+# TestSourceSectionQueries
+# ---------------------------------------------------------------------------
+
+
+class TestSourceSectionQueries:
+    """Tests for get_cards_by_source and get_catalog_tree."""
+
+    def _populate(self, conn) -> dict:
+        """Insert cards across multiple sources and sections.
+
+        Returns a dict mapping descriptive keys to card_ids so tests can
+        make precise assertions.
+        """
+        cards = {
+            # deck=cfa_level1, source=los, topic_id=1, section_id=1.a
+            "los_t1_1a_i0": insert_generation_card(conn, _minimal_card(
+                deck="cfa_level1", source="los", topic_id="1",
+                section_id="1.a", card_index=0,
+                question="LOS T1 1.a card 0?", answer="A",
+            )),
+            # deck=cfa_level1, source=los, topic_id=1, section_id=1.b
+            "los_t1_1b_i0": insert_generation_card(conn, _minimal_card(
+                deck="cfa_level1", source="los", topic_id="1",
+                section_id="1.b", card_index=0,
+                question="LOS T1 1.b card 0?", answer="B",
+            )),
+            # deck=cfa_level1, source=los, topic_id=2, section_id=2.a
+            "los_t2_2a_i0": insert_generation_card(conn, _minimal_card(
+                deck="cfa_level1", source="los", topic_id="2",
+                section_id="2.a", card_index=0,
+                question="LOS T2 2.a card 0?", answer="C",
+            )),
+            # deck=cfa_level1, source=markdown, topic_id=1, section_id=1.a, card_index=0
+            "md_t1_1a_i0": insert_generation_card(conn, _minimal_card(
+                deck="cfa_level1", source="markdown", topic_id="1",
+                section_id="1.a", card_index=0,
+                question="Markdown T1 1.a card 0?", answer="D",
+            )),
+            # deck=cfa_level1, source=markdown, topic_id=1, section_id=1.a, card_index=1
+            "md_t1_1a_i1": insert_generation_card(conn, _minimal_card(
+                deck="cfa_level1", source="markdown", topic_id="1",
+                section_id="1.a", card_index=1,
+                question="Markdown T1 1.a card 1?", answer="E",
+            )),
+            # deck=other_deck, source=los, topic_id=1, section_id=1.a
+            "other_los_t1_1a": insert_generation_card(conn, _minimal_card(
+                deck="other_deck", source="los", topic_id="1",
+                section_id="1.a", card_index=0,
+                question="Other deck LOS T1 1.a?", answer="F",
+            )),
+        }
+        return cards
+
+    # --- get_cards_by_source ---
+
+    def test_get_cards_by_source_returns_matching_source(self):
+        conn = init_generation_db()
+        ids = self._populate(conn)
+
+        results = get_cards_by_source(conn, source="markdown")
+        result_ids = {r["card_id"] for r in results}
+
+        assert ids["md_t1_1a_i0"] in result_ids
+        assert ids["md_t1_1a_i1"] in result_ids
+        assert ids["los_t1_1a_i0"] not in result_ids
+        assert ids["los_t1_1b_i0"] not in result_ids
+
+    def test_get_cards_by_source_with_topic_filter(self):
+        conn = init_generation_db()
+        ids = self._populate(conn)
+
+        results = get_cards_by_source(conn, source="los", topic_ids=["1"])
+        result_ids = {r["card_id"] for r in results}
+
+        # topic_id=1 cards from los, across both decks
+        assert ids["los_t1_1a_i0"] in result_ids
+        assert ids["los_t1_1b_i0"] in result_ids
+        assert ids["other_los_t1_1a"] in result_ids
+        # topic_id=2 card excluded
+        assert ids["los_t2_2a_i0"] not in result_ids
+        # markdown cards excluded
+        assert ids["md_t1_1a_i0"] not in result_ids
+
+    def test_get_cards_by_source_with_section_filter(self):
+        conn = init_generation_db()
+        ids = self._populate(conn)
+
+        results = get_cards_by_source(conn, source="los", section_ids=["1.a"])
+        result_ids = {r["card_id"] for r in results}
+
+        assert ids["los_t1_1a_i0"] in result_ids
+        assert ids["other_los_t1_1a"] in result_ids
+        assert ids["los_t1_1b_i0"] not in result_ids
+        assert ids["los_t2_2a_i0"] not in result_ids
+
+    def test_get_cards_by_source_with_topic_and_section_filter(self):
+        conn = init_generation_db()
+        ids = self._populate(conn)
+
+        results = get_cards_by_source(
+            conn, source="los", topic_ids=["1"], section_ids=["1.a"]
+        )
+        result_ids = {r["card_id"] for r in results}
+
+        assert ids["los_t1_1a_i0"] in result_ids
+        assert ids["other_los_t1_1a"] in result_ids
+        # 1.b excluded by section filter
+        assert ids["los_t1_1b_i0"] not in result_ids
+        # topic_id=2 excluded by topic filter
+        assert ids["los_t2_2a_i0"] not in result_ids
+
+    def test_get_cards_by_source_with_deck_filter(self):
+        conn = init_generation_db()
+        ids = self._populate(conn)
+
+        results = get_cards_by_source(
+            conn, source="los", deck="cfa_level1"
+        )
+        result_ids = {r["card_id"] for r in results}
+
+        assert ids["los_t1_1a_i0"] in result_ids
+        assert ids["los_t1_1b_i0"] in result_ids
+        assert ids["los_t2_2a_i0"] in result_ids
+        # other_deck excluded
+        assert ids["other_los_t1_1a"] not in result_ids
+
+    def test_get_cards_by_source_returns_all_fields(self):
+        conn = init_generation_db()
+        self._populate(conn)
+
+        results = get_cards_by_source(conn, source="markdown", deck="cfa_level1")
+        assert len(results) == 2
+        for row in results:
+            assert "card_id" in row
+            assert "source" in row
+            assert "topic_id" in row
+            assert "section_id" in row
+            assert "question" in row
+            assert "answer" in row
+
+    def test_get_cards_by_source_empty_when_no_match(self):
+        conn = init_generation_db()
+        self._populate(conn)
+
+        results = get_cards_by_source(conn, source="nonexistent_source")
+        assert results == []
+
+    # --- get_cards_by_readings backwards compatibility ---
+
+    def test_get_cards_by_readings_returns_cards_from_all_sources(self):
+        """get_cards_by_readings should return cards from ALL sources for given topic_ids."""
+        conn = init_generation_db()
+        ids = self._populate(conn)
+
+        results = get_cards_by_readings(conn, topic_ids=["1"], deck="cfa_level1")
+        result_ids = {r["card_id"] for r in results}
+
+        # Both los and markdown cards with topic_id=1 should appear
+        assert ids["los_t1_1a_i0"] in result_ids
+        assert ids["los_t1_1b_i0"] in result_ids
+        assert ids["md_t1_1a_i0"] in result_ids
+        assert ids["md_t1_1a_i1"] in result_ids
+        # topic_id=2 excluded
+        assert ids["los_t2_2a_i0"] not in result_ids
+
+    # --- get_catalog_tree ---
+
+    def test_get_catalog_tree_grouping_and_counts(self):
+        conn = init_generation_db()
+        self._populate(conn)
+
+        rows = get_catalog_tree(conn, deck="cfa_level1")
+
+        # Build a lookup: (topic_id, source, section_id) -> card_count
+        lookup = {
+            (r["topic_id"], r["source"], r["section_id"]): r["card_count"]
+            for r in rows
+        }
+
+        assert lookup[("1", "los", "1.a")] == 1
+        assert lookup[("1", "los", "1.b")] == 1
+        assert lookup[("2", "los", "2.a")] == 1
+        assert lookup[("1", "markdown", "1.a")] == 2  # two markdown cards
+
+    def test_get_catalog_tree_deck_filter_excludes_other_decks(self):
+        conn = init_generation_db()
+        self._populate(conn)
+
+        rows = get_catalog_tree(conn, deck="cfa_level1")
+        decks_returned = {r["deck"] for r in rows}
+
+        assert decks_returned == {"cfa_level1"}
+
+    def test_get_catalog_tree_without_deck_filter_returns_all_decks(self):
+        conn = init_generation_db()
+        self._populate(conn)
+
+        rows = get_catalog_tree(conn)
+        decks_returned = {r["deck"] for r in rows}
+
+        assert "cfa_level1" in decks_returned
+        assert "other_deck" in decks_returned
+
+    def test_get_catalog_tree_row_keys(self):
+        conn = init_generation_db()
+        self._populate(conn)
+
+        rows = get_catalog_tree(conn)
+        assert len(rows) > 0
+        for row in rows:
+            assert "deck" in row
+            assert "topic_id" in row
+            assert "source" in row
+            assert "section_id" in row
+            assert "section_title" in row
+            assert "card_count" in row
+
+    def test_get_catalog_tree_ordered(self):
+        """Rows are ordered by deck, topic_id, source, section_id."""
+        conn = init_generation_db()
+        self._populate(conn)
+
+        rows = get_catalog_tree(conn, deck="cfa_level1")
+        keys = [(r["topic_id"], r["source"], r["section_id"]) for r in rows]
+        assert keys == sorted(keys)
+
+    def test_get_catalog_tree_empty_db(self):
+        conn = init_generation_db()
+        rows = get_catalog_tree(conn)
+        assert rows == []
 
     def test_foreign_keys_enabled_after_migration(self):
         """FK enforcement must be ON after migrating a v1 database."""

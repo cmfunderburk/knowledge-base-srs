@@ -513,6 +513,84 @@ def get_due_generation_cards(
     return [dict(row) for row in rows]
 
 
+def get_cards_by_source(
+    conn: sqlite3.Connection,
+    source: str,
+    topic_ids: list[str] | None = None,
+    section_ids: list[str] | None = None,
+    deck: str | None = None,
+) -> list[dict]:
+    """Return all cards matching the given source, with optional filters.
+
+    Cards are returned in random order. Used by practice modes that filter
+    by source (e.g. 'los', 'markdown') independently of topic/section.
+
+    Parameters
+    ----------
+    source:
+        Source identifier to filter on (e.g. 'los', 'markdown').
+    topic_ids:
+        Optional list of topic_id values to restrict to.
+    section_ids:
+        Optional list of section_id values to restrict to.
+    deck:
+        Optional deck name filter.
+    """
+    params: list = [source]
+    clauses: list[str] = ["source = ?"]
+
+    if deck is not None:
+        clauses.append("deck = ?")
+        params.append(deck)
+
+    if topic_ids is not None:
+        placeholders = ", ".join("?" * len(topic_ids))
+        clauses.append(f"topic_id IN ({placeholders})")
+        params.extend(topic_ids)
+
+    if section_ids is not None:
+        placeholders = ", ".join("?" * len(section_ids))
+        clauses.append(f"section_id IN ({placeholders})")
+        params.extend(section_ids)
+
+    where_clause = " AND ".join(clauses)
+    sql = f"SELECT * FROM generation_cards WHERE {where_clause} ORDER BY RANDOM()"
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_catalog_tree(
+    conn: sqlite3.Connection,
+    deck: str | None = None,
+) -> list[dict]:
+    """Return aggregated card counts grouped by deck, topic_id, source, section_id.
+
+    Each returned dict has keys: deck, topic_id, source, section_id,
+    section_title, card_count. Used to build the catalog TUI tree.
+
+    Parameters
+    ----------
+    deck:
+        Optional deck name filter.
+    """
+    params: list = []
+    where_clause = ""
+    if deck is not None:
+        where_clause = "WHERE deck = ?"
+        params.append(deck)
+
+    sql = f"""
+        SELECT deck, topic_id, source, section_id, section_title,
+               COUNT(*) AS card_count
+        FROM generation_cards
+        {where_clause}
+        GROUP BY deck, topic_id, source, section_id
+        ORDER BY deck, topic_id, source, section_id
+    """
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
 def insert_generation_review(conn: sqlite3.Connection, review: dict) -> int:
     """Insert a generation review log entry and return the generated ``review_id``."""
     columns = list(review.keys())
