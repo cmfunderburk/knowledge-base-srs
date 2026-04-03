@@ -15,6 +15,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static, Tree
+from rich.text import Text
 
 
 @dataclass
@@ -328,10 +329,11 @@ class CatalogScreen(Screen):
             self._add_node_to_tree(tree_node, child)
 
     @staticmethod
-    def _node_label(node: CatalogNode) -> str:
+    def _node_label(node: CatalogNode) -> Text:
         """Build the display label with selection marker and card count."""
-        marker = "[x]" if node.selected else "[ ]"
-        return f"{marker} {node.label} ({node.card_count})"
+        if node.selected:
+            return Text(f"* {node.label} ({node.card_count})", style="bold")
+        return Text(f"  {node.label} ({node.card_count})")
 
     def _update_tree_labels(self) -> None:
         """Refresh all tree node labels to reflect current selection state."""
