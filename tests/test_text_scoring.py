@@ -6,6 +6,7 @@ from knowledge_base.srs.text_scoring import (
     tokenize,
     TokenResult,
     compare_tokens,
+    check_exact_answer,
 )
 
 
@@ -167,3 +168,51 @@ class TestCompareTokens:
         assert results[1].status == "close"   # "kat" vs "cat" → dist 1
         assert results[2].status == "wrong"   # "runned" vs "ran" → dist 3
         assert results[3].status == "missing"  # "fast" missing
+
+
+# ---------------------------------------------------------------------------
+# TestCheckExactAnswer
+# ---------------------------------------------------------------------------
+
+class TestCheckExactAnswer:
+    def test_exact_string_match(self):
+        assert check_exact_answer("hello", "hello") is True
+
+    def test_case_insensitive_string(self):
+        assert check_exact_answer("Yes", "yes") is True
+
+    def test_string_mismatch(self):
+        assert check_exact_answer("hello", "world") is False
+
+    def test_numeric_match_integers(self):
+        assert check_exact_answer("1234", "1234") is True
+
+    def test_numeric_match_with_commas(self):
+        assert check_exact_answer("1234", "1,234") is True
+
+    def test_numeric_match_trailing_zeros(self):
+        assert check_exact_answer("6.20", "6.2") is True
+
+    def test_numeric_match_float(self):
+        assert check_exact_answer("3.14", "3.14") is True
+
+    def test_numeric_mismatch(self):
+        assert check_exact_answer("6.3", "6.2") is False
+
+    def test_whitespace_stripped(self):
+        assert check_exact_answer("  6.2  ", "6.2") is True
+
+    def test_dollar_sign_prevents_numeric_parse(self):
+        assert check_exact_answer("$6.2", "6.2") is False
+
+    def test_both_non_numeric_case_insensitive(self):
+        assert check_exact_answer("YES", "yes") is True
+
+    def test_empty_strings_match(self):
+        assert check_exact_answer("", "") is True
+
+    def test_comma_in_typed_and_stored(self):
+        assert check_exact_answer("1,234", "1,234") is True
+
+    def test_integer_vs_float_representation(self):
+        assert check_exact_answer("100", "100.0") is True

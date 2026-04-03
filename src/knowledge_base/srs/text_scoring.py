@@ -134,3 +134,29 @@ def compare_tokens(
                 ))
 
     return results
+
+
+def _try_parse_number(s: str) -> float | None:
+    """Try to parse a string as a number, removing commas. Returns None on failure."""
+    try:
+        return float(s.replace(",", ""))
+    except (ValueError, TypeError):
+        return None
+
+
+def check_exact_answer(typed: str, stored: str) -> bool:
+    """Check if typed answer matches stored answer.
+
+    Numeric-aware: both sides are parsed as numbers if possible,
+    compared as floats. Falls back to case-insensitive string comparison.
+    """
+    typed = typed.strip()
+    stored = stored.strip()
+
+    typed_num = _try_parse_number(typed)
+    stored_num = _try_parse_number(stored)
+
+    if typed_num is not None and stored_num is not None:
+        return typed_num == stored_num
+
+    return typed.lower() == stored.lower()
