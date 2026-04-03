@@ -158,8 +158,7 @@ def build_tree(
         topic_key = (deck_name, topic_id)
         if topic_key not in topic_nodes:
             # Try to get a descriptive label
-            title = _get_reading_title(conn, deck_name, topic_id)
-            label = title if title else f"Reading {topic_id}"
+            label = f"Reading {topic_id}"
             topic_node = CatalogNode(
                 label=label,
                 node_type="topic",
