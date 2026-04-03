@@ -157,8 +157,8 @@ def build_tree(
         # --- Topic node ---
         topic_key = (deck_name, topic_id)
         if topic_key not in topic_nodes:
-            # Try to get a descriptive label
-            label = f"Reading {topic_id}"
+            # Use "Reading N" for numeric topic_ids (CFA LOS), plain name otherwise
+            label = f"Reading {topic_id}" if topic_id.isdigit() else topic_id
             topic_node = CatalogNode(
                 label=label,
                 node_type="topic",
