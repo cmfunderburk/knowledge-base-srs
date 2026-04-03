@@ -17,7 +17,7 @@ from pathlib import Path
 # Schema
 # ---------------------------------------------------------------------------
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS generation_schema_version (
@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS generation_cards (
     question               TEXT    NOT NULL,
     answer                 TEXT    NOT NULL,
     tags                   TEXT    NOT NULL DEFAULT '[]',
+    card_type              TEXT    NOT NULL DEFAULT 'masking',
     masking_level          INTEGER NOT NULL DEFAULT 0,
     phase                  TEXT    NOT NULL DEFAULT 'generation',
     consecutive_max_passes INTEGER NOT NULL DEFAULT 0,
@@ -103,6 +104,7 @@ _CONTENT_FIELDS = (
     "question",
     "answer",
     "tags",
+    "card_type",
 )
 
 
@@ -163,6 +165,16 @@ def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE generation_cards")
     conn.execute("ALTER TABLE generation_cards_v2 RENAME TO generation_cards")
     conn.execute(
+        "UPDATE generation_schema_version SET version = 2",
+    )
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Migrate generation_cards from schema v2 to v3: add card_type column."""
+    conn.execute(
+        "ALTER TABLE generation_cards ADD COLUMN card_type TEXT NOT NULL DEFAULT 'masking'"
+    )
+    conn.execute(
         "UPDATE generation_schema_version SET version = ?",
         (CURRENT_SCHEMA_VERSION,),
     )
@@ -197,7 +209,8 @@ def init_generation_db(
 
     # Determine if migration is needed before opening a transaction,
     # since PRAGMA foreign_keys is a no-op inside an active transaction.
-    needs_migration = False
+    needs_v1_migration = False
+    needs_v3_migration = False
     try:
         version_count = conn.execute(
             "SELECT COUNT(*) FROM generation_schema_version"
@@ -206,19 +219,26 @@ def init_generation_db(
             stored_version = conn.execute(
                 "SELECT version FROM generation_schema_version"
             ).fetchone()[0]
-            needs_migration = stored_version < 2
+            needs_v1_migration = stored_version < 2
+            needs_v3_migration = stored_version < 3
     except sqlite3.OperationalError:
         pass  # Table doesn't exist yet — fresh DB
 
-    if needs_migration:
-        # Disable FKs outside any transaction for the migration
+    if needs_v1_migration:
+        # Disable FKs outside any transaction for the table-recreation migration
         conn.execute("PRAGMA foreign_keys=OFF;")
         with conn:
             _migrate_v1_to_v2(conn)
         # Re-enable FKs outside the transaction
         conn.execute("PRAGMA foreign_keys=ON;")
+        # v2→v3 still needs to run after v1→v2
+        needs_v3_migration = True
     else:
         conn.execute("PRAGMA foreign_keys=ON;")
+
+    if needs_v3_migration:
+        with conn:
+            _migrate_v2_to_v3(conn)
 
     with conn:
         conn.execute(_DDL_SCHEMA_VERSION)

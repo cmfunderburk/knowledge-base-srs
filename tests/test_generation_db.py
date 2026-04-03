@@ -91,7 +91,7 @@ class TestSchemaInit:
         assert row["version"] == CURRENT_SCHEMA_VERSION
 
     def test_current_schema_version_constant(self):
-        assert CURRENT_SCHEMA_VERSION == 2
+        assert CURRENT_SCHEMA_VERSION == 3
 
     def test_idempotent_init(self):
         """Calling init_generation_db again on same conn does not raise."""
@@ -630,7 +630,7 @@ class TestSchemaV2Migration:
     """Tests for v1 → v2 migration (los_id → section_id, new columns)."""
 
     def test_migration_runs_on_v1_db(self):
-        """init_generation_db on a v1 database migrates to v2."""
+        """init_generation_db on a v1 database migrates to current version."""
         conn = _create_v1_db(sqlite3.connect(":memory:"))
         # Insert a v1 card
         conn.execute(
@@ -645,7 +645,7 @@ class TestSchemaV2Migration:
         version = conn.execute(
             "SELECT version FROM generation_schema_version"
         ).fetchone()[0]
-        assert version == 2
+        assert version == CURRENT_SCHEMA_VERSION
 
     def test_migration_renames_los_id_to_section_id(self):
         """After migration, los_id column is gone and section_id exists."""
@@ -858,8 +858,8 @@ class TestSchemaV2Migration:
         assert count == 2
 
     def test_v2_db_no_migration_needed(self):
-        """init_generation_db on an already-v2 database is a no-op."""
-        conn = init_generation_db()  # Creates a fresh v2 DB
+        """init_generation_db on an already-current DB is a no-op."""
+        conn = init_generation_db()  # Creates a fresh DB at current version
         insert_generation_card(conn, _minimal_card())
 
         # Re-init should not break anything
@@ -868,7 +868,7 @@ class TestSchemaV2Migration:
         version = conn.execute(
             "SELECT version FROM generation_schema_version"
         ).fetchone()[0]
-        assert version == 2
+        assert version == CURRENT_SCHEMA_VERSION
 
         card = conn.execute(
             "SELECT * FROM generation_cards WHERE section_id = '1.a'"
@@ -892,7 +892,7 @@ class TestSchemaV2Migration:
         version = conn2.execute(
             "SELECT version FROM generation_schema_version"
         ).fetchone()[0]
-        assert version == 2
+        assert version == CURRENT_SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -1142,3 +1142,148 @@ class TestSourceSectionQueries:
                 "(card_id, timestamp, answer_mode, elapsed_days) "
                 "VALUES (99999, '2026-01-01', 'test', 0.0)"
             )
+
+
+# ---------------------------------------------------------------------------
+# TestSchemaV3Migration
+# ---------------------------------------------------------------------------
+
+
+def _create_v2_db(conn: sqlite3.Connection) -> sqlite3.Connection:
+    """Create a v2 schema database directly (bypassing init_generation_db).
+
+    Returns the connection with v2 tables set up and version stamped as 2.
+    """
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS generation_schema_version (
+            version INTEGER NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS generation_cards (
+            card_id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            deck                   TEXT    NOT NULL,
+            source                 TEXT    NOT NULL DEFAULT 'los',
+            topic_id               TEXT    NOT NULL,
+            section_id             TEXT    NOT NULL,
+            section_title          TEXT,
+            card_index             INTEGER NOT NULL DEFAULT 0,
+            question               TEXT    NOT NULL,
+            answer                 TEXT    NOT NULL,
+            tags                   TEXT    NOT NULL DEFAULT '[]',
+            masking_level          INTEGER NOT NULL DEFAULT 0,
+            phase                  TEXT    NOT NULL DEFAULT 'generation',
+            consecutive_max_passes INTEGER NOT NULL DEFAULT 0,
+            difficulty             REAL    NOT NULL DEFAULT 5.0,
+            stability              REAL    NOT NULL DEFAULT 0.0,
+            last_review            TEXT,
+            due                    TEXT,
+            reps                   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (deck, source, topic_id, section_id, card_index)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS generation_review_log (
+            review_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            card_id          INTEGER NOT NULL REFERENCES generation_cards(card_id),
+            timestamp        TEXT    NOT NULL,
+            answer_mode      TEXT    NOT NULL,
+            phase_level      INTEGER,
+            grade            INTEGER,
+            passed           INTEGER,
+            elapsed_days     REAL    NOT NULL,
+            interval_applied REAL
+        )
+    """)
+    conn.execute("INSERT INTO generation_schema_version (version) VALUES (2)")
+    conn.commit()
+    return conn
+
+
+class TestSchemaV3Migration:
+    """Tests for v2 → v3 migration (add card_type column)."""
+
+    def test_migration_adds_card_type_column(self):
+        """init_generation_db on a v2 database adds card_type='masking' to existing cards."""
+        conn = _create_v2_db(sqlite3.connect(":memory:"))
+        conn.execute(
+            "INSERT INTO generation_cards (deck, source, topic_id, section_id, "
+            "card_index, question, answer) "
+            "VALUES ('cfa', 'los', '1', '1.a', 0, 'Q?', 'A.')"
+        )
+        conn.commit()
+
+        init_generation_db(conn=conn)
+
+        row = conn.execute(
+            "SELECT card_type FROM generation_cards WHERE section_id = '1.a'"
+        ).fetchone()
+        assert row is not None
+        assert row["card_type"] == "masking"
+
+    def test_migration_updates_schema_version(self):
+        """Schema version is 3 after migrating from v2."""
+        conn = _create_v2_db(sqlite3.connect(":memory:"))
+        init_generation_db(conn=conn)
+
+        version = conn.execute(
+            "SELECT version FROM generation_schema_version"
+        ).fetchone()[0]
+        assert version == 3
+
+    def test_migration_preserves_existing_cards(self):
+        """Existing card data (question, answer, scheduling) is intact after migration."""
+        conn = _create_v2_db(sqlite3.connect(":memory:"))
+        conn.execute(
+            "INSERT INTO generation_cards (deck, source, topic_id, section_id, "
+            "card_index, question, answer, difficulty, stability, reps) "
+            "VALUES ('cfa', 'los', '1', '1.a', 0, 'Q?', 'A.', 3.5, 7.5, 4)"
+        )
+        conn.commit()
+
+        init_generation_db(conn=conn)
+
+        row = conn.execute(
+            "SELECT * FROM generation_cards WHERE section_id = '1.a'"
+        ).fetchone()
+        row = dict(row)
+        assert row["question"] == "Q?"
+        assert row["answer"] == "A."
+        assert row["difficulty"] == pytest.approx(3.5)
+        assert row["stability"] == pytest.approx(7.5)
+        assert row["reps"] == 4
+        assert row["card_type"] == "masking"
+
+    def test_fresh_db_has_card_type_column(self):
+        """A freshly created DB allows inserting a card with card_type='exact'."""
+        conn = init_generation_db()
+        card = _minimal_card(card_type="exact")
+        card_id = insert_generation_card(conn, card)
+        row = get_generation_card(conn, card_id)
+        assert row is not None
+        assert row["card_type"] == "exact"
+
+    def test_insert_exact_card(self):
+        """insert_generation_card with card_type='exact' round-trips correctly."""
+        conn = init_generation_db()
+        card = _minimal_card(card_type="exact", answer="42.5%")
+        card_id = insert_generation_card(conn, card)
+
+        retrieved = get_generation_card(conn, card_id)
+        assert retrieved is not None
+        assert retrieved["card_type"] == "exact"
+        assert retrieved["answer"] == "42.5%"
+
+    def test_default_card_type_is_masking(self):
+        """Cards inserted without card_type get the default 'masking'."""
+        conn = init_generation_db()
+        card = _minimal_card()  # no card_type key
+        card_id = insert_generation_card(conn, card)
+
+        retrieved = get_generation_card(conn, card_id)
+        assert retrieved is not None
+        assert retrieved["card_type"] == "masking"
