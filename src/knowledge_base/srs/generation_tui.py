@@ -228,6 +228,7 @@ class GenerationReviewApp(App):
         catalog_card_ids: list[int] | None = None,
         show_catalog: bool = False,
         paste_cards: list[dict] | None = None,
+        start_level: int = 0,
     ) -> None:
         super().__init__()
         self.db_path = db_path
@@ -243,6 +244,7 @@ class GenerationReviewApp(App):
         self.catalog_card_ids = catalog_card_ids
         self.show_catalog = show_catalog
         self.paste_cards = paste_cards
+        self.start_level = min(start_level, MAX_MASKING_LEVEL)
         self.conn = None
         self.queue: deque[QueueItem] = deque()
         self.total_reviewed: int = 0
@@ -353,7 +355,7 @@ class GenerationReviewApp(App):
         for c in cards:
             practice_card = dict(c)  # copy so we don't affect DB-loaded state
             practice_card["phase"] = "generation"
-            practice_card["masking_level"] = 0
+            practice_card["masking_level"] = self.start_level
             practice_card["consecutive_max_passes"] = 0
             self.queue.append(QueueItem(card=practice_card, delay=0))
 
@@ -370,7 +372,7 @@ class GenerationReviewApp(App):
         for c in cards:
             practice_card = dict(c)
             practice_card["phase"] = "generation"
-            practice_card["masking_level"] = 0
+            practice_card["masking_level"] = self.start_level
             practice_card["consecutive_max_passes"] = 0
             self.queue.append(QueueItem(card=practice_card, delay=0))
 
@@ -406,7 +408,7 @@ class GenerationReviewApp(App):
         for c in cards:
             practice_card = dict(c)
             practice_card["phase"] = "generation"
-            practice_card["masking_level"] = 0
+            practice_card["masking_level"] = self.start_level
             practice_card["consecutive_max_passes"] = 0
             self.queue.append(QueueItem(card=practice_card, delay=0))
 
@@ -444,7 +446,7 @@ class GenerationReviewApp(App):
         for c in cards:
             practice_card = dict(c)
             practice_card["phase"] = "generation"
-            practice_card["masking_level"] = 0
+            practice_card["masking_level"] = self.start_level
             practice_card["consecutive_max_passes"] = 0
             self.queue.append(QueueItem(card=practice_card, delay=0))
 
@@ -1170,6 +1172,11 @@ def main() -> None:
         "--split-by", choices=["sentence", "line"], default="sentence",
         help="How to split pasted text into cards (default: sentence).",
     )
+    parser.add_argument(
+        "--start-level", type=int, default=0,
+        help="Initial masking level for practice (0-2, default: 0). "
+             "Use 2 to start at max masking for familiar material.",
+    )
     args = parser.parse_args()
 
     # Determine whether to show the catalog as the entry screen.
@@ -1252,6 +1259,7 @@ def main() -> None:
             stats_only=False,
             catalog_card_ids=None,
             paste_cards=paste_card_dicts,
+            start_level=args.start_level,
         )
         app.run()
         return
@@ -1267,6 +1275,7 @@ def main() -> None:
             source_filter=args.source,
             section_filter=args.section,
             topic_filter=args.topic,
+            start_level=args.start_level,
         )
         app.run()
         return
@@ -1279,5 +1288,6 @@ def main() -> None:
         practice=args.practice,
         ordered_practice=args.ordered_practice,
         show_catalog=show_catalog,
+        start_level=args.start_level,
     )
     app.run()
