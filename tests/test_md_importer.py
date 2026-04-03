@@ -1,7 +1,10 @@
 """Tests for srs/md_importer.py — Markdown import parser."""
+import json
+
 import pytest
 
-from knowledge_base.srs.md_importer import parse_markdown
+from knowledge_base.srs.generation_db import init_generation_db, get_cards_by_source
+from knowledge_base.srs.md_importer import import_markdown, parse_markdown
 
 
 # ---------------------------------------------------------------------------
@@ -405,3 +408,181 @@ class TestRealWorldLOSKeyed:
         result = parse_markdown(self.SAMPLE)
         los_1b = next(s for s in result if s["section_id"] == "1.b")
         assert len(los_1b["cards"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# import_markdown — DB integration
+# ---------------------------------------------------------------------------
+
+
+class TestImportMarkdown:
+    """Tests for import_markdown() — parsing + DB upsert."""
+
+    # Section-keyed sample: 2 sections, 3 + 1 = 4 cards total
+    SECTION_SAMPLE = """\
+- 1.2: Interest Rates and Time Value of Money
+\t- An interest rate can have three interpretations.
+\t- An interest rate can be viewed as the sum of a real risk-free interest rate.
+\t- The nominal risk-free rate is approximated as the real rate plus inflation.
+- 1.3: Rates of Return
+\t- A financial asset's total return consists of income yield and capital gain/loss.
+"""
+
+    # LOS-keyed sample: 2 sections, 2 + 1 = 3 cards total
+    LOS_SAMPLE = """\
+### LOS 1.a
+- An interest rate can be interpreted as the rate of return required in equilibrium.
+- Securities may have several risks increasing the required rate of return.
+### LOS 1.b
+- Holding period return is used to measure an investment's return over a specific period.
+"""
+
+    def _make_conn(self):
+        return init_generation_db(db_path=":memory:")
+
+    # ------------------------------------------------------------------
+    # Card count
+    # ------------------------------------------------------------------
+
+    def test_returns_correct_card_count_section(self):
+        conn = self._make_conn()
+        n = import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        assert n == 4
+
+    def test_returns_correct_card_count_los(self):
+        conn = self._make_conn()
+        n = import_markdown(conn, self.LOS_SAMPLE, deck="test", topic_id="1", source="md")
+        assert n == 3
+
+    def test_cards_written_to_db(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        assert len(cards) == 4
+
+    # ------------------------------------------------------------------
+    # Field correctness
+    # ------------------------------------------------------------------
+
+    def test_section_id_set(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        section_ids = {c["section_id"] for c in cards}
+        assert "1.2" in section_ids
+        assert "1.3" in section_ids
+
+    def test_section_title_set(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        card_12 = next(c for c in cards if c["section_id"] == "1.2" and c["card_index"] == 0)
+        assert card_12["section_title"] == "Interest Rates and Time Value of Money"
+
+    def test_section_title_none_for_los(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.LOS_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        for card in cards:
+            assert card["section_title"] is None
+
+    def test_card_index_set(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        cards_12 = sorted(
+            [c for c in cards if c["section_id"] == "1.2"],
+            key=lambda c: c["card_index"],
+        )
+        assert [c["card_index"] for c in cards_12] == [0, 1, 2]
+
+    def test_source_stored(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md_notes")
+        cards = get_cards_by_source(conn, source="md_notes", deck="test")
+        assert all(c["source"] == "md_notes" for c in cards)
+
+    def test_topic_id_stored(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="42", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        assert all(c["topic_id"] == "42" for c in cards)
+
+    def test_answer_is_card_text(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        card_13 = next(c for c in cards if c["section_id"] == "1.3")
+        assert "income yield" in card_13["answer"]
+
+    # ------------------------------------------------------------------
+    # Question format
+    # ------------------------------------------------------------------
+
+    def test_question_with_section_title(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        card = next(c for c in cards if c["section_id"] == "1.2" and c["card_index"] == 0)
+        assert card["question"] == "1.2: Interest Rates and Time Value of Money [1/3]"
+
+    def test_question_without_section_title(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.LOS_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        card = next(c for c in cards if c["section_id"] == "1.a" and c["card_index"] == 0)
+        assert card["question"] == "LOS 1.a [1/2]"
+
+    def test_question_last_card_in_section(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        card = next(c for c in cards if c["section_id"] == "1.2" and c["card_index"] == 2)
+        assert card["question"] == "1.2: Interest Rates and Time Value of Money [3/3]"
+
+    # ------------------------------------------------------------------
+    # Tags
+    # ------------------------------------------------------------------
+
+    def test_tags_contain_reading_tag(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="5", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        for card in cards:
+            tags = json.loads(card["tags"])
+            assert "reading::5" in tags
+
+    def test_tags_contain_source_tag(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="5", source="my_notes")
+        cards = get_cards_by_source(conn, source="my_notes", deck="test")
+        for card in cards:
+            tags = json.loads(card["tags"])
+            assert "source::my_notes" in tags
+
+    def test_tags_is_json_array(self):
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        for card in cards:
+            tags = json.loads(card["tags"])
+            assert isinstance(tags, list)
+
+    # ------------------------------------------------------------------
+    # Idempotency
+    # ------------------------------------------------------------------
+
+    def test_idempotent_import(self):
+        """Importing the same markdown twice produces no duplicate cards."""
+        conn = self._make_conn()
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        cards = get_cards_by_source(conn, source="md", deck="test")
+        assert len(cards) == 4
+
+    def test_idempotent_returns_same_count(self):
+        """Second import returns same card count as first."""
+        conn = self._make_conn()
+        n1 = import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        n2 = import_markdown(conn, self.SECTION_SAMPLE, deck="test", topic_id="1", source="md")
+        assert n1 == n2 == 4

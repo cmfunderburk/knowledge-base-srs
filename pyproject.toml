@@ -19,6 +19,7 @@ review = "knowledge_base.srs.tui:main"
 srs-import = "knowledge_base.srs.importer:main"
 review-gen = "knowledge_base.srs.generation_tui:main"
 gen-import = "knowledge_base.srs.generation_import:main"
+gen-import-md = "knowledge_base.srs.md_importer:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

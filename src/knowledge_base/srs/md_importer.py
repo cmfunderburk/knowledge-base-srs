@@ -13,9 +13,12 @@ parent.  Consecutive non-bullet lines join into a single card (paragraph mode).
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sqlite3
 from pathlib import Path
+
+from knowledge_base.srs.generation_db import init_generation_db, upsert_generation_card
 
 
 # ---------------------------------------------------------------------------
@@ -244,3 +247,122 @@ def parse_markdown(
         return _parse_los_keyed(lines)
     else:
         raise ValueError(f"Unknown format {fmt!r}. Expected 'section' or 'los'.")
+
+
+def import_markdown(
+    conn: sqlite3.Connection,
+    text: str,
+    deck: str,
+    topic_id: str,
+    source: str,
+    format: str | None = None,
+) -> int:
+    """Parse *text* and upsert each card into the generation_cards table.
+
+    Parameters
+    ----------
+    conn:
+        Open SQLite connection (generation tables must already exist).
+    text:
+        Raw markdown content to parse.
+    deck:
+        Deck name for all imported cards.
+    topic_id:
+        Topic/reading identifier for all imported cards.
+    source:
+        Source identifier (e.g. ``'markdown'``) for all imported cards.
+    format:
+        Force ``'section'`` or ``'los'`` parsing. If ``None``, auto-detect.
+
+    Returns
+    -------
+    int
+        Number of cards upserted.
+    """
+    sections = parse_markdown(text, format=format)
+    tags = json.dumps([f"reading::{topic_id}", f"source::{source}"])
+
+    count = 0
+    for section in sections:
+        section_id: str = section["section_id"]
+        section_title: str | None = section["section_title"]
+        cards: list[str] = section["cards"]
+        total = len(cards)
+
+        for card_index, answer in enumerate(cards):
+            if section_title:
+                question = (
+                    f"{section_id}: {section_title} [{card_index + 1}/{total}]"
+                )
+            else:
+                question = f"LOS {section_id} [{card_index + 1}/{total}]"
+
+            card = {
+                "deck": deck,
+                "source": source,
+                "topic_id": topic_id,
+                "section_id": section_id,
+                "section_title": section_title,
+                "card_index": card_index,
+                "question": question,
+                "answer": answer,
+                "tags": tags,
+            }
+            upsert_generation_card(conn, card)
+            count += 1
+
+    return count
+
+
+def main() -> None:
+    """CLI entry point for importing markdown study notes into the SRS database."""
+    parser = argparse.ArgumentParser(
+        description="Import structured markdown notes into the generation cards DB."
+    )
+    parser.add_argument("file", help="Path to the markdown file to import.")
+    parser.add_argument("--deck", required=True, help="Deck name.")
+    parser.add_argument("--topic", required=True, help="Topic/reading number.")
+    parser.add_argument("--source", required=True, help="Source identifier.")
+    parser.add_argument(
+        "--format",
+        choices=["section", "los"],
+        default=None,
+        help="Force a specific parsing format (auto-detect if omitted).",
+    )
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Print parsed sections and card counts without writing to DB.",
+    )
+    parser.add_argument(
+        "--db",
+        default="data/srs.db",
+        help="Path to the SQLite database (default: data/srs.db).",
+    )
+    args = parser.parse_args()
+
+    text = Path(args.file).read_text(encoding="utf-8")
+
+    if args.preview:
+        sections = parse_markdown(text, format=args.format)
+        total = 0
+        for section in sections:
+            count = len(section["cards"])
+            total += count
+            title_part = (
+                f": {section['section_title']}" if section["section_title"] else ""
+            )
+            print(f"  {section['section_id']}{title_part}  ({count} card{'s' if count != 1 else ''})")
+        print(f"Total: {total} card{'s' if total != 1 else ''}")
+        return
+
+    conn = init_generation_db(db_path=args.db)
+    n = import_markdown(
+        conn=conn,
+        text=text,
+        deck=args.deck,
+        topic_id=args.topic,
+        source=args.source,
+        format=args.format,
+    )
+    print(f"Imported {n} card{'s' if n != 1 else ''} into {args.db}.")
