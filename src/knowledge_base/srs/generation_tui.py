@@ -432,6 +432,7 @@ class GenerationReviewApp(App):
             cards.sort(key=_section_sort_key)
             self.TITLE = "Ordered Practice"
         else:
+            random.shuffle(cards)
             self.TITLE = "Massed Practice"
         self.practice_mode = True
         self.ordered_practice = ordered

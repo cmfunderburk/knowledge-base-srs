@@ -216,3 +216,12 @@ class TestCheckExactAnswer:
 
     def test_integer_vs_float_representation(self):
         assert check_exact_answer("100", "100.0") is True
+
+    def test_en_dash_matches_hyphen(self):
+        assert check_exact_answer("~$50,000-80,000", "~$50,000\u201380,000") is True
+
+    def test_em_dash_matches_hyphen(self):
+        assert check_exact_answer("50-60", "50\u201460") is True
+
+    def test_extra_whitespace_normalized(self):
+        assert check_exact_answer("50 - 60  years", "50 - 60 years") is True

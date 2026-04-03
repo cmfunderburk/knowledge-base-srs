@@ -144,11 +144,28 @@ def _try_parse_number(s: str) -> float | None:
         return None
 
 
+def _normalize_text(s: str) -> str:
+    """Normalize text for forgiving comparison.
+
+    Normalizes dashes (en-dash, em-dash → hyphen), collapses whitespace,
+    strips leading/trailing whitespace, and lowercases.
+    """
+    # Normalize unicode dashes to ASCII hyphen
+    s = s.replace("\u2013", "-")  # en-dash
+    s = s.replace("\u2014", "-")  # em-dash
+    s = s.replace("\u2012", "-")  # figure dash
+    s = s.replace("\u2015", "-")  # horizontal bar
+    # Normalize whitespace
+    s = " ".join(s.split())
+    return s.strip().lower()
+
+
 def check_exact_answer(typed: str, stored: str) -> bool:
     """Check if typed answer matches stored answer.
 
     Numeric-aware: both sides are parsed as numbers if possible,
-    compared as floats. Falls back to case-insensitive string comparison.
+    compared as floats. Falls back to normalized string comparison
+    (case-insensitive, dash-normalized, whitespace-collapsed).
     """
     typed = typed.strip()
     stored = stored.strip()
@@ -159,4 +176,4 @@ def check_exact_answer(typed: str, stored: str) -> bool:
     if typed_num is not None and stored_num is not None:
         return typed_num == stored_num
 
-    return typed.lower() == stored.lower()
+    return _normalize_text(typed) == _normalize_text(stored)
