@@ -169,6 +169,8 @@ def _normalize_text(s: str) -> str:
             break
     # Remove commas (thousands separators)
     s = s.replace(",", "")
+    # Normalize trailing .0 on numbers (4.0 → 4, 6.00 → 6, but 6.5 stays)
+    s = re.sub(r"(\d)\.0+\b", r"\1", s)
     # Normalize whitespace
     s = " ".join(s.split())
     return s.strip()

@@ -255,3 +255,12 @@ class TestCheckExactAnswer:
 
     def test_negative_range(self):
         assert check_exact_answer("-2 to -5", "-2 to -5%") is True
+
+    def test_trailing_zero_stripped(self):
+        assert check_exact_answer("4-6", "4.0-6.0+") is True
+
+    def test_trailing_zero_preserves_decimals(self):
+        assert check_exact_answer("4.5-6.5", "4.5-6.5") is True
+
+    def test_trailing_zero_mixed(self):
+        assert check_exact_answer("4-6.5", "4.0-6.5") is True
