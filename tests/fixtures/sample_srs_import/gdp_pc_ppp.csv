@@ -1,5 +1,0 @@
-entity,entity_type,region,era,year,value,source
-World,region,,current,2024,21405.12,World Bank WDI
-India,major,South Asia,current,2024,2389.0,World Bank WDI
-USA,major,Europe & Central Asia,current,2024,80384.77,World Bank WDI
-South Asia,region,,current,2024,7200.0,World Bank WDI

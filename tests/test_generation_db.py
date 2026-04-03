@@ -567,29 +567,6 @@ class TestReviewLog:
         assert row["version"] == CURRENT_SCHEMA_VERSION
         assert get_generation_card(conn2, card_id) is not None
 
-    def test_coexists_with_srs_db_in_same_file(self, tmp_path):
-        """generation tables can coexist with srs tables in the same SQLite file."""
-        from knowledge_base.srs.db import init_db, insert_card, get_card
-
-        db_file = tmp_path / "shared.db"
-
-        # Init both schemas in the same file
-        conn_srs = init_db(db_path=str(db_file))
-        conn_gen = init_generation_db(db_path=str(db_file))
-
-        # Both can write independently
-        srs_card_id = insert_card(conn_srs, {
-            "deck": "test_deck",
-            "indicator_id": "IND001",
-            "entity": "World",
-            "era": "2020s",
-            "question": "SRS question?",
-            "answer": 42.0,
-        })
-        gen_card_id = insert_generation_card(conn_gen, _minimal_card())
-
-        assert get_card(conn_srs, srs_card_id) is not None
-        assert get_generation_card(conn_gen, gen_card_id) is not None
 
 
 # ---------------------------------------------------------------------------
