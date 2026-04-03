@@ -1,235 +1,164 @@
 # Knowledge Base
 
-A TUI-based spaced repetition system with two review modes:
+A TUI-based memorization tool for drilling structured study material through progressive masking and type-in practice.
 
-- **Calibration review** — estimate 95% confidence intervals or point predictions for real-world socioeconomic, financial, and development indicators. Interval scoring treats the user's response as an implied distributional forecast, using answer-normalized log-likelihood to modulate review intervals via a continuous FSRS model. Designed to build calibrated order-of-magnitude intuitions relevant to GJOpen/Metaculus-style forecasting.
+## Core Feature: Generation Review
 
-- **Generation review** — type-in recall of factual statements (currently CFA Level I LOS), progressing through letter-level masking stages before graduating to standard FSRS v6 scheduling. Supports massed practice (transient, no DB writes) and ordered practice (ring-buffer drilling) alongside the persistent global review queue.
+Import structured markdown or paste raw text, then drill it through a masking → type-in progression that builds recall. The system supports two markdown formats out of the box and a free-form paste mode for quick memorization of arbitrary text.
 
-An [Anki with Uncertainty](https://github.com/Sage-Future/anki-with-uncertainty) export pipeline is maintained for the calibration decks as a sharing and backup mechanism.
+### Importing Material
 
-## Calibration Decks
+**Structured markdown** — point at a `.md` file with either section-keyed or LOS-keyed headings:
 
-Eight decks spanning ~50 indicators across 47 countries and 50 major cities.
+```bash
+# Section-keyed (e.g., "- 1.2: Interest Rates and TVM")
+uv run gen-import-md notes.md --deck my_deck --topic 1 --source official
 
-### Global Development
+# LOS-keyed (e.g., "### LOS 1.a")
+uv run gen-import-md schweser.md --deck my_deck --topic 1 --source schweser
 
-13 indicators across 47 entities (7 world regions, 15 major economies, 25 development-relevant countries) and 3 time periods (~1960, ~1990, current).
+# Preview what will be imported without writing to DB
+uv run gen-import-md notes.md --deck my_deck --topic 1 --source official --preview
+```
 
-| Category | Indicators |
-|----------|-----------|
-| Development | GDP per capita (PPP), poverty headcount, Gini coefficient, trade/GDP |
-| Health | Life expectancy, under-5 mortality, maternal mortality, fertility rate |
-| Energy | CO2 per capita, renewable electricity share, energy intensity |
-| Geography | Population, land area |
+Each bullet point under a heading becomes an individual card. Sub-bullets fold into their parent.
 
-### Technology Adoption
+**Paste-and-drill** — paste text directly for immediate practice:
 
-6 indicators across 47 entities and 4 time periods (1990, 2000, 2010, current).
+```bash
+uv run review-gen --paste                  # ephemeral: splits into sentences, drill, done
+uv run review-gen --paste --split-by line  # split on newlines instead
+uv run review-gen --paste --save-as "ch3_defs" --deck my_deck --topic 3 --source notes  # persist
+```
 
-| Indicator | Unit |
-|-----------|------|
-| Internet users | % of population |
-| Mobile cellular subscriptions | per 100 people |
-| Fixed broadband subscriptions | per 100 people |
-| R&D expenditure | % of GDP |
-| High-technology exports | % of manufactured exports |
-| Electricity access | % of population |
+### Practicing
 
-### Conflict & Security
+```bash
+uv run review-gen                          # catalog TUI: browse, select, launch
+uv run review-gen --ordered-practice 1-5   # drill readings 1-5 in order
+uv run review-gen --practice all           # massed practice, all readings
+uv run review-gen --source official --topic 1 --ordered-practice  # source-filtered
+uv run review-gen --start-level 2          # start at max masking for familiar material
+```
 
-7 indicators across 47 entities and 3 time periods (~1960, ~1990, current).
-
-| Category | Indicators |
-|----------|-----------|
-| Military | Military expenditure (% of GDP), military expenditure (USD), armed forces personnel, arms imports |
-| Security | Intentional homicides, refugees by country of origin, refugees by country of asylum |
-
-### Finance & Markets
-
-8 indicators across 47 entities and 3 time periods (~1960, ~1990, current).
-
-| Category | Indicators |
-|----------|-----------|
-| Macro | Inflation (CPI), current account balance, total reserves including gold, real interest rate |
-| Financial System | Market capitalization, stocks traded, domestic credit to private sector, personal remittances received |
-
-### Education
-
-4 indicators across 47 entities and 2 time periods (~1990, current).
-
-| Indicator | Unit |
-|-----------|------|
-| Adult literacy rate | % of people ages 15+ |
-| Secondary school enrollment | % gross |
-| Tertiary school enrollment | % gross |
-| Government education expenditure | % of GDP |
-
-### Governance
-
-6 Worldwide Governance Indicators across 40 country entities and 2 time periods (~2000, current). No regional aggregates.
-
-| Indicator | WB Code |
-|-----------|---------|
-| Government effectiveness | GE.EST |
-| Control of corruption | CC.EST |
-| Rule of law | RL.EST |
-| Regulatory quality | RQ.EST |
-| Voice and accountability | VA.EST |
-| Political stability | PV.EST |
-
-All indicators use a standardized index scale (-2.5 to +2.5).
-
-### Urban Areas
-
-6 indicators for 50 major cities (by 2025 population) plus income-group aggregates, across 5 time periods (1990, 2000, 2010, 2020, 2025).
-
-| Category | Indicators |
-|----------|-----------|
-| Demographics | Population |
-| Emissions | CO2 per capita, PM2.5 concentration |
-| Socioeconomic | Life expectancy, HDI |
-| Urban Form | Built-up area per capita |
-
-**Data source:** GHS Urban Centre Database (R2024A).
-
-### Descriptive Statistics
-
-Cross-cutting deck with distribution summary cards (mean, median, SD, min, max with entities) for each indicator across all source decks.
-
----
-
-**Data sources:** World Bank WDI (API) for the thematic decks, GHS-UCDB for urban areas. Each card includes reference-class context (world average + regional average) to support Fermi-style reasoning.
-
-## Generation Decks
-
-Currently covers CFA Level I Learning Outcome Statements (225 statements across 48 readings). The generation review system is domain-agnostic and designed to expand to other factual recall content.
-
-**Review lifecycle:**
-1. **Generation phase** — cards progress through 3 masking levels (30%, 60%, first-letter-only), with queue-based spacing between presentations
-2. **Graduation** — 2 consecutive passes at maximum masking promotes a card to recall phase
-3. **Recall phase** — standard FSRS v6 with Again/Hard/Good/Easy grading; cards that lapse with interval < 24h demote back to generation at level 2
+**Catalog TUI** — the default when you run bare `review-gen`. A tree browser organized as deck → reading → source → section. Multi-select with Space, then press `m` for massed or `o` for ordered practice.
 
 **Practice modes** (transient, no DB writes):
-- `--practice` — massed practice filtered by reading number(s); cards progress through masking then re-queue at end of deck
-- `--ordered-practice` — ring-buffer drilling in fixed LOS order; pass/fail affects masking level but not queue position
+- **Massed** (`--practice`) — cards in random order, progressing through masking levels then re-queuing
+- **Ordered** (`--ordered-practice`) — fixed document order (ring buffer); pass/fail affects masking level but not position
 
-## SRS Scheduling
+**Masking progression** — cards start with ~30% of letters masked, advance to ~60%, then first-letter-only hints, then full type-in. `--start-level 2` skips to max masking for material you already know.
 
-### Calibration (continuous FSRS)
+### Global Review (Persistent SRS)
 
-A continuous variant of FSRS v6 where score in [0,1] maps directly to stability updates — no binary lapse/success threshold. Key properties:
+Cards imported persistently also participate in a long-term review lifecycle:
 
-- **Power-law forgetting curve:** `R(t,S) = (1 + FACTOR*t/S)^DECAY`
-- **Sigmoid recall/lapse blend:** smoothly interpolates between recall and lapse stability formulas based on score
-- **Initial stability** scales exponentially with score (~10 min at score=0, ~6.9 days at score=1.0)
-- **23 tunable parameters**, all documented with role and rationale
+1. **Generation phase** — progress through 3 masking levels with queue-based spacing
+2. **Graduation** — 2 consecutive passes at max masking promotes to recall phase
+3. **Recall phase** — standard FSRS v6 (Again/Hard/Good/Easy); lapsing with interval < 24h demotes back to generation
 
-### Generation (standard FSRS v6)
-
-Published default weights `W[0..18]`, 4-button discrete grading. Completely independent from the calibration scheduler.
-
-### Statistics
-
-Brier score, calibration rate, score distribution histograms, point prediction hit rates — viewable per deck or per indicator.
-
-## Architecture
-
-```
-config.py (DECKS registry, ENTITIES)
-    |
-    v
-fetch-data / fetch-urban-data / fetch-desc-stats --> data/{deck}/*.csv
-    |                                                      |
-    v                                                      v
-srs-import --> data/srs.db --> review TUI           build-deck --> .apkg
-
-data/cfa_level1_los.json --> gen-import --> data/srs.db --> review-gen TUI
+```bash
+uv run gen-import                    # import CFA LOS JSON data
+uv run review-gen                    # global review picks up due cards automatically
 ```
 
-The CSV intermediary makes manual corrections straightforward — edit a CSV, re-run `srs-import` or `build-deck`.
+## Secondary Feature: Calibration Review
+
+A confidence-interval and point-prediction training system for building calibrated intuitions about real-world indicators. Interval scoring treats responses as implied distributional forecasts, using answer-normalized log-likelihood to modulate review intervals via a continuous FSRS model.
+
+Eight decks spanning ~50 indicators across 47 countries and 50 major cities, sourced from World Bank WDI and GHS-UCDB. An [Anki with Uncertainty](https://github.com/Sage-Future/anki-with-uncertainty) export pipeline is maintained for sharing and backup.
+
+```bash
+uv run fetch-data development        # World Bank → data/development/*.csv
+uv run srs-import --all              # import all decks → data/srs.db
+uv run review                        # launch calibration TUI
+uv run build-deck development        # export to .apkg for Anki
+```
+
+### Calibration Decks
+
+| Deck | Indicators | Entities | Source |
+|------|-----------|----------|--------|
+| Development | GDP per capita, poverty, Gini, life expectancy, mortality, CO2, population, etc. (13) | 47 countries/regions | World Bank |
+| Technology Adoption | Internet, mobile, broadband, R&D, high-tech exports, electricity access (6) | 47 | World Bank |
+| Conflict & Security | Military spending, armed forces, arms imports, homicides, refugees (7) | 47 | World Bank |
+| Finance & Markets | Inflation, reserves, market cap, credit, remittances (8) | 47 | World Bank |
+| Education | Literacy, secondary/tertiary enrollment, education spending (4) | 47 | World Bank |
+| Governance | 6 Worldwide Governance Indicators | 40 | World Bank |
+| Urban Areas | Population, CO2, PM2.5, life expectancy, HDI, built-up area (6) | 50 cities | GHS-UCDB |
+| Descriptive Statistics | Mean/median/SD/min/max summaries for all indicators above | cross-cutting | computed |
 
 ## Setup
 
 ```bash
 uv sync                              # install dependencies
 
-# Fetch calibration data
-uv run fetch-data development        # World Bank --> data/development/*.csv
-uv run fetch-data tech_adoption
-uv run fetch-data conflict_security
-uv run fetch-data finance
-uv run fetch-data education
-uv run fetch-data governance
-uv run fetch-urban-data              # GHS-UCDB --> data/urban_areas/*.csv
-uv run fetch-desc-stats              # compute stats --> data/descriptive_stats/*.csv
+# Generation review (primary)
+uv run gen-import                    # import LOS data → data/srs.db
+uv run gen-import-md <file> --deck D --topic T --source S  # import markdown
+uv run review-gen                    # launch catalog or review TUI
 
-# Calibration review
-uv run srs-import --all              # import all decks --> data/srs.db
-uv run review                        # launch TUI review session
-uv run review --stats                # stats screen only
+# Calibration review (secondary)
+uv run fetch-data <deck_key>         # fetch World Bank data
+uv run srs-import --all              # import calibration decks
+uv run review                        # launch calibration TUI
 
-# Generation review (CFA LOS)
-uv run gen-import                    # import LOS --> data/srs.db
-uv run review-gen                    # launch TUI review session
-uv run review-gen --practice 36      # massed practice: single reading
-uv run review-gen --ordered-practice all  # ordered practice: all readings
-
-# Anki export (sharing/backup)
-uv run build-deck development        # --> knowledge_base.apkg
-
-uv run pytest                        # 391 tests
+uv run pytest                        # ~510 tests
 ```
 
-Anki export requires the [Anki with Uncertainty](https://www.quantifiedintuitions.org/anki-with-uncertainty) add-on (code `694813595`).
+## Architecture
+
+```
+# Generation review pipeline
+markdown files ──→ gen-import-md ──→ data/srs.db ──→ review-gen TUI
+cfa_level1_los.json ──→ gen-import ─┘                    │
+                                                   catalog TUI (browse/select)
+
+# Calibration review pipeline
+config.py (DECKS, ENTITIES)
+    │
+    v
+fetch-data / fetch-urban-data ──→ data/{deck}/*.csv
+    │                                    │
+    v                                    v
+srs-import ──→ data/srs.db ──→ review TUI    build-deck ──→ .apkg
+```
 
 ## Project Structure
 
 ```
 src/knowledge_base/
-    config.py              # DECKS registry, entity lists, indicator metadata
-    card_gen.py            # Question/answer/tag generation (shared by build_deck + srs)
-    wb_api.py              # World Bank API client
-    ghsl.py                # GHS-UCDB GeoPackage reader
-    fetch_data.py          # World Bank --> data/<deck>/*.csv
-    fetch_urban_data.py    # GHS-UCDB --> data/urban_areas/*.csv
-    fetch_desc_stats.py    # Compute descriptive statistics
-    desc_stats.py          # Statistics computation helper
-    build_deck.py          # CSV --> .apkg (Anki export)
     srs/
-        scoring.py         # Log-likelihood interval scoring, point prediction scoring
-        scheduler.py       # Continuous FSRS scheduling (calibration mode)
-        fsrs.py            # Standard FSRS v6 scheduling (generation mode)
-        db.py              # SQLite schema, CRUD, migrations
-        importer.py        # CSV --> SQLite card import (calibration)
-        generation_db.py   # Generation card tables and CRUD
-        generation_import.py  # JSON LOS --> SQLite card import
-        generation_tui.py  # TUI for generation card review
-        masking.py         # Letter-level masking algorithm (3 levels)
-        text_scoring.py    # Token-level Levenshtein comparison
-        stats.py           # Calibration metrics and score distributions
-        tui.py             # TUI for calibration review sessions
+        # Generation review (primary)
+        generation_db.py      # Schema v2 (source/section_id/card_index), CRUD
+        generation_import.py  # JSON LOS → SQLite import
+        md_importer.py        # Markdown parser + gen-import-md CLI
+        catalog.py            # Catalog tree builder + CatalogScreen TUI
+        generation_tui.py     # Review TUI, practice modes, paste-and-drill
+        masking.py            # Letter-level masking (3 levels)
+        text_scoring.py       # Token-level Levenshtein comparison
+        fsrs.py               # Standard FSRS v6 (generation recall phase)
+
+        # Calibration review (secondary)
+        scoring.py            # Log-likelihood interval scoring
+        scheduler.py          # Continuous FSRS (calibration mode)
+        db.py                 # Calibration card schema, CRUD
+        importer.py           # CSV → SQLite import
+        tui.py                # Calibration review TUI
+        stats.py              # Brier score, calibration metrics
+
+    # Shared / calibration data pipeline
+    config.py                 # DECKS registry, entity lists
+    card_gen.py               # Question/answer generation
+    wb_api.py                 # World Bank API client
+    ghsl.py                   # GHS-UCDB reader
+    fetch_data.py             # World Bank → CSV
+    fetch_urban_data.py       # GHS-UCDB → CSV
+    fetch_desc_stats.py       # Descriptive statistics
+    build_deck.py             # CSV → .apkg (Anki export)
+
 data/
-    development/           # Curated CSVs (gitignored, regenerated by fetch commands)
-    tech_adoption/
-    conflict_security/
-    finance/
-    education/
-    governance/
-    urban_areas/
-    descriptive_stats/
-    cfa_level1_los.json    # CFA Level I LOS data (checked in)
-    srs.db                 # Personal review state (gitignored)
-tests/                     # 391 tests
+    cfa_level1_los.json       # CFA Level I LOS data (checked in)
+    srs.db                    # Review state (gitignored)
+    {deck}/*.csv              # Calibration CSVs (gitignored)
 ```
-
-## Tag Schema
-
-Calibration cards are tagged for filtering:
-
-- `category::development`, `category::health`, `category::energy`, etc.
-- `indicator::gdp_pc_ppp`, `indicator::internet_users`, etc.
-- `entity::india`, `entity::sub_saharan_africa`, etc.
-- `entity_type::region`, `entity_type::major`, `entity_type::long_tail`
-- `era::1960`, `era::1990`, `era::2000`, `era::2010`, `era::current`
-- `source_deck::development`, etc. (descriptive stats cards only)
