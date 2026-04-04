@@ -178,3 +178,87 @@ class TestLemmatizeAndCount:
         # Should have a modern lemma with archaic map entry
         has_archaic = any(v for v in archaic_map.values() if v)
         assert has_archaic
+
+
+import json
+
+
+class TestParseWiktionaryResponse:
+    def test_extracts_definition_and_pos(self):
+        from scripts.german_vocab.build_vocab import parse_wiktionary_response
+
+        response = {
+            "de": [
+                {
+                    "partOfSpeech": "Noun",
+                    "language": "German",
+                    "definitions": [
+                        {
+                            "definition": '<a href="/wiki/virtue" title="virtue">virtue</a>',
+                            "parsedExamples": [
+                                {
+                                    "example": "Ohne <b>Tugend</b> gibt es keine Freiheit.",
+                                    "translation": "Without <b>virtue</b>, there is no freedom.",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        result = parse_wiktionary_response(response)
+        assert result["pos"] == "Noun"
+        assert "virtue" in result["english"]
+        assert "Tugend" in result["example_de"]
+        assert "virtue" in result["example_en"]
+
+    def test_strips_html_tags(self):
+        from scripts.german_vocab.build_vocab import parse_wiktionary_response
+
+        response = {
+            "de": [
+                {
+                    "partOfSpeech": "Noun",
+                    "language": "German",
+                    "definitions": [
+                        {
+                            "definition": (
+                                '<span class="usage-label-sense"></span> '
+                                '<a href="/wiki/mob">mob</a>, '
+                                '<a href="/wiki/riffraff">riffraff</a>'
+                            ),
+                        }
+                    ],
+                }
+            ]
+        }
+        result = parse_wiktionary_response(response)
+        assert result["english"] == "mob, riffraff"
+        assert "<" not in result["english"]
+
+    def test_returns_none_for_no_german_entry(self):
+        from scripts.german_vocab.build_vocab import parse_wiktionary_response
+
+        result = parse_wiktionary_response({"en": [{"partOfSpeech": "Noun"}]})
+        assert result is None
+
+
+class TestWiktionaryCache:
+    def test_caches_responses(self, tmp_path):
+        from scripts.german_vocab.build_vocab import load_cached, save_cached
+
+        cache_dir = tmp_path / ".wiktionary_cache"
+        cache_dir.mkdir()
+
+        data = {"de": [{"partOfSpeech": "Noun", "definitions": []}]}
+        save_cached(cache_dir, "Tugend", data)
+
+        loaded = load_cached(cache_dir, "Tugend")
+        assert loaded == data
+
+    def test_returns_none_for_cache_miss(self, tmp_path):
+        from scripts.german_vocab.build_vocab import load_cached
+
+        cache_dir = tmp_path / ".wiktionary_cache"
+        cache_dir.mkdir()
+        assert load_cached(cache_dir, "missing") is None

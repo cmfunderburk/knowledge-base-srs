@@ -10,8 +10,13 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import zipfile
 from collections import Counter
 from pathlib import Path
@@ -188,3 +193,112 @@ def filter_non_german(text: str, nlp: spacy.Language) -> str:
         if foreign_count / len(tokens) < 0.5:
             german_sents.append(sent.text)
     return " ".join(german_sents)
+
+
+WIKTIONARY_API = "https://en.wiktionary.org/api/rest_v1/page/definition"
+USER_AGENT = "GermanVocabDeckBuilder/1.0 (educational project)"
+FETCH_DELAY = 0.2  # seconds between requests
+
+
+def load_cached(cache_dir: Path, word: str) -> dict | None:
+    """Load a cached Wiktionary response, or None on miss."""
+    cache_file = cache_dir / f"{urllib.parse.quote(word, safe='')}.json"
+    if cache_file.exists():
+        return json.loads(cache_file.read_text(encoding="utf-8"))
+    return None
+
+
+def save_cached(cache_dir: Path, word: str, data: dict) -> None:
+    """Save a Wiktionary response to the cache."""
+    cache_file = cache_dir / f"{urllib.parse.quote(word, safe='')}.json"
+    cache_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def fetch_wiktionary(word: str) -> dict | None:
+    """Fetch a word definition from the Wiktionary REST API."""
+    url = f"{WIKTIONARY_API}/{urllib.parse.quote(word)}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError:
+        return None
+    except (urllib.error.URLError, TimeoutError):
+        return None
+
+
+def parse_wiktionary_response(data: dict) -> dict | None:
+    """Parse a Wiktionary response into card fields.
+
+    Returns dict with keys: pos, english, example_de, example_en.
+    Returns None if no German entry found.
+    """
+    if "de" not in data:
+        return None
+
+    entries = data["de"]
+    if not entries:
+        return None
+
+    entry = entries[0]
+    pos = entry.get("partOfSpeech", "")
+    definitions = entry.get("definitions", [])
+
+    english_parts = []
+    example_de = ""
+    example_en = ""
+    for defn in definitions[:2]:
+        raw = defn.get("definition", "")
+        clean = re.sub(r"<[^>]+>", "", raw).strip()
+        clean = re.sub(r"\s+", " ", clean).strip()
+        if clean:
+            english_parts.append(clean)
+
+        if not example_de:
+            examples = defn.get("parsedExamples", [])
+            if examples:
+                ex = examples[0]
+                example_de = re.sub(r"<[^>]+>", "", ex.get("example", "")).strip()
+                example_en = re.sub(r"<[^>]+>", "", ex.get("translation", "")).strip()
+
+    if not english_parts:
+        return None
+
+    return {
+        "pos": pos,
+        "english": ", ".join(english_parts),
+        "example_de": example_de,
+        "example_en": example_en,
+    }
+
+
+def fetch_definition(word: str, cache_dir: Path, pos_hint: str = "") -> dict | None:
+    """Fetch and parse a Wiktionary definition, with caching and fallback."""
+    cached = load_cached(cache_dir, word)
+    if cached is not None:
+        result = parse_wiktionary_response(cached)
+        if result is not None:
+            return result
+
+    data = fetch_wiktionary(word)
+    time.sleep(FETCH_DELAY)
+
+    if data is not None:
+        save_cached(cache_dir, word, data)
+        result = parse_wiktionary_response(data)
+        if result is not None:
+            return result
+
+    # Fallback: try opposite case
+    alt = word[0].lower() + word[1:] if word[0].isupper() else word[0].upper() + word[1:]
+    if alt != word:
+        data = fetch_wiktionary(alt)
+        time.sleep(FETCH_DELAY)
+        if data is not None:
+            save_cached(cache_dir, alt, data)
+            result = parse_wiktionary_response(data)
+            if result is not None:
+                return result
+
+    save_cached(cache_dir, word, {})
+    return None
