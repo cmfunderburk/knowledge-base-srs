@@ -10,10 +10,12 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import re
 import sqlite3
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -24,6 +26,17 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import spacy
+
+# Paths
+TEXTS_DIR = Path("resources/texts")
+ZARATHUSTRA_PATH = TEXTS_DIR / "Also Sprach Zarathustra.txt"
+WITTGENSTEIN_PATH = TEXTS_DIR / "Philosophische Untersuchungen.md"
+FREQ_DECK_PATH = Path.home() / "Dropbox" / "autodidact 2025" / "GREATS" / "English-German_Sorted_by_Frequency.apkg"
+DATA_DIR = Path("data/german_vocab")
+CACHE_DIR = DATA_DIR / ".wiktionary_cache"
+CSV_PATH = DATA_DIR / "cards.csv"
+
+MIN_FREQUENCY = 4
 
 
 # Archaic spelling rules (Nietzsche-era orthography → modern)
@@ -328,3 +341,109 @@ def write_csv(
         writer.writeheader()
         for card in cards:
             writer.writerow(card)
+
+
+def build_vocab(*, force: bool = False) -> None:
+    """Run the full vocabulary extraction pipeline."""
+    # Ensure output directories exist
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Check overwrite before doing any work
+    if CSV_PATH.exists() and not force:
+        print(f"Error: {CSV_PATH} already exists. Use --force to overwrite.", file=sys.stderr)
+        sys.exit(1)
+
+    print("Loading spaCy model...")
+    nlp = spacy.load("de_core_news_lg")
+    nlp.max_length = 2_000_000
+
+    # Load and filter texts
+    print("Loading texts...")
+    z_text = load_zarathustra(ZARATHUSTRA_PATH)
+    w_text = load_wittgenstein(WITTGENSTEIN_PATH)
+
+    print("Filtering non-German passages...")
+    z_text = filter_non_german(z_text, nlp)
+    w_text = filter_non_german(w_text, nlp)
+
+    # Lemmatize and count
+    print("Lemmatizing Zarathustra...")
+    z_counts, z_archaic = lemmatize_and_count(z_text, nlp)
+    print(f"  {len(z_counts)} unique lemmas")
+
+    print("Lemmatizing Wittgenstein...")
+    w_counts, w_archaic = lemmatize_and_count(w_text, nlp)
+    print(f"  {len(w_counts)} unique lemmas")
+
+    # Load exclusion set
+    print("Loading exclusion set from frequency deck...")
+    exclusion = load_exclusion_set(FREQ_DECK_PATH)
+    print(f"  {len(exclusion)} forms to exclude")
+
+    # Merge counts and determine source
+    all_lemmas: dict[str, dict] = {}
+    for lemma, count in z_counts.items():
+        all_lemmas[lemma] = {"z": count, "w": 0, "archaic": z_archaic.get(lemma, "")}
+    for lemma, count in w_counts.items():
+        if lemma in all_lemmas:
+            all_lemmas[lemma]["w"] = count
+        else:
+            all_lemmas[lemma] = {"z": 0, "w": count, "archaic": w_archaic.get(lemma, "")}
+        # Prefer archaic form from whichever text had it
+        if not all_lemmas[lemma]["archaic"] and lemma in w_archaic:
+            all_lemmas[lemma]["archaic"] = w_archaic[lemma]
+
+    # Filter
+    candidates = {}
+    for lemma, info in all_lemmas.items():
+        total = info["z"] + info["w"]
+        if total < MIN_FREQUENCY:
+            continue
+        if lemma.lower() in exclusion:
+            continue
+        candidates[lemma] = info
+
+    print(f"Candidates after filtering: {len(candidates)}")
+
+    # Fetch Wiktionary definitions
+    print("Fetching Wiktionary definitions...")
+    cards = []
+    for i, (lemma, info) in enumerate(sorted(candidates.items(), key=lambda x: -(x[1]["z"] + x[1]["w"]))):
+        total = info["z"] + info["w"]
+        source = "both" if info["z"] > 0 and info["w"] > 0 else ("nietzsche" if info["z"] > 0 else "wittgenstein")
+
+        defn = fetch_definition(lemma, CACHE_DIR)
+
+        card = {
+            "german": lemma,
+            "english": defn["english"] if defn else "",
+            "pos": defn["pos"] if defn else "",
+            "example_de": defn["example_de"] if defn else "",
+            "example_en": defn["example_en"] if defn else "",
+            "archaic_form": info["archaic"],
+            "source": source,
+            "frequency": total,
+            "needs_review": "x" if defn is None else "",
+        }
+        cards.append(card)
+
+        if (i + 1) % 50 == 0:
+            print(f"  {i + 1}/{len(candidates)} fetched...")
+
+    # Write CSV
+    needs_review = sum(1 for c in cards if c["needs_review"])
+    print(f"\nWriting {len(cards)} cards to {CSV_PATH} ({needs_review} need review)...")
+    write_csv(cards, CSV_PATH, force=force)
+    print("Done.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Build German vocabulary CSV from philosophical texts")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing cards.csv")
+    args = parser.parse_args()
+    build_vocab(force=args.force)
+
+
+if __name__ == "__main__":
+    main()
