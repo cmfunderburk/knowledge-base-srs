@@ -13,10 +13,94 @@ from __future__ import annotations
 import re
 import sqlite3
 import zipfile
+from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import spacy
+
+
+# Archaic spelling rules (Nietzsche-era orthography → modern)
+ARCHAIC_RULES: list[tuple[re.Pattern, str]] = [
+    # "Th" at word start → "T" (Thorheit→Torheit, Thiere→Tiere, Theil→Teil)
+    (re.compile(r"^Th"), "T"),
+    (re.compile(r"^th"), "t"),
+    # "gie" → "gi" (giebt→gibt, gieng→ging)
+    (re.compile(r"^gie"), "gi"),
+    # "ey" → "ei" (seyn→sein)
+    (re.compile(r"ey"), "ei"),
+    # "eiss" / "eisst" → "eiß" / "eißt" (heisst→heißt, weiss→weiß)
+    (re.compile(r"eiss(t?)$"), r"eiß\1"),
+    # Terminal "ss" → "s" for words like Gleichniss→Gleichnis, diess→dies
+    (re.compile(r"ss$"), "s"),
+]
+
+
+def normalize_archaic(word: str) -> str:
+    """Normalize 19th-century German spelling to modern equivalents."""
+    result = word
+    for pattern, replacement in ARCHAIC_RULES:
+        result = pattern.sub(replacement, result)
+    return result
+
+
+# spaCy POS tags for function words to exclude
+FUNCTION_POS = {"ADP", "AUX", "CCONJ", "DET", "PART", "PRON", "SCONJ", "PUNCT", "SPACE", "X", "NUM", "SYM"}
+
+
+def lemmatize_and_count(
+    text: str, nlp: spacy.Language
+) -> tuple[Counter[str], dict[str, str]]:
+    """Lemmatize text with spaCy and count lemma frequencies.
+
+    Returns:
+        counts: Counter mapping lemma → frequency
+        archaic_map: dict mapping lemma → archaic form (if different)
+    """
+    doc = nlp(text)
+    counts: Counter[str] = Counter()
+    archaic_map: dict[str, str] = {}
+
+    for token in doc:
+        if token.is_space or token.is_punct:
+            continue
+        if token.pos_ in FUNCTION_POS:
+            continue
+        if token.pos_ == "PROPN":
+            continue
+        if len(token.text) <= 2:
+            continue
+
+        lemma = token.lemma_.strip()
+        if not lemma or len(lemma) <= 2:
+            continue
+
+        # Normalize archaic spellings
+        modern = normalize_archaic(lemma)
+
+        # Capitalize nouns (German convention)
+        if token.pos_ == "NOUN" and not modern[0].isupper():
+            modern = modern[0].upper() + modern[1:]
+
+        # Strip spurious trailing "e" from lemmas when the original token
+        # ended in "en" — spaCy sometimes returns a stem like "Tugende"
+        # instead of "Tugend" for plural forms (e.g. "Tugenden" → "Tugende")
+        if (
+            modern.endswith("e")
+            and len(modern) > 3
+            and token.text.lower().endswith("en")
+        ):
+            modern = modern[:-1]
+
+        # Track archaic form if normalization changed the original token
+        original = token.text
+        original_normalized = normalize_archaic(original)
+        if original_normalized != original and modern not in archaic_map:
+            archaic_map[modern] = original
+
+        counts[modern] += 1
+
+    return counts, archaic_map
 
 
 def load_exclusion_set(apkg_path: Path) -> set[str]:

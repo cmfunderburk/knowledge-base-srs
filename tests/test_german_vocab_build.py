@@ -116,3 +116,65 @@ class TestFilterLatin:
         assert "bestimmtes Bild" in result
         assert "benennen Gegenstände" in result
         assert "appellabant" not in result
+
+
+class TestArchaicNormalization:
+    def test_th_to_t(self):
+        from scripts.german_vocab.build_vocab import normalize_archaic
+
+        assert normalize_archaic("Thorheit") == "Torheit"
+        assert normalize_archaic("Thiere") == "Tiere"
+        assert normalize_archaic("Theil") == "Teil"
+        assert normalize_archaic("Thränen") == "Tränen"
+
+    def test_giebt_to_gibt(self):
+        from scripts.german_vocab.build_vocab import normalize_archaic
+
+        assert normalize_archaic("giebt") == "gibt"
+        assert normalize_archaic("gieng") == "ging"
+
+    def test_ss_to_eszett(self):
+        from scripts.german_vocab.build_vocab import normalize_archaic
+
+        assert normalize_archaic("Gleichniss") == "Gleichnis"
+        assert normalize_archaic("heisst") == "heißt"
+        assert normalize_archaic("weiss") == "weiß"
+
+    def test_no_change_for_modern(self):
+        from scripts.german_vocab.build_vocab import normalize_archaic
+
+        assert normalize_archaic("Tugend") == "Tugend"
+        assert normalize_archaic("Haus") == "Haus"
+
+    def test_diess_to_dies(self):
+        from scripts.german_vocab.build_vocab import normalize_archaic
+
+        assert normalize_archaic("diess") == "dies"
+
+
+class TestLemmatizeAndCount:
+    def test_groups_inflected_forms(self):
+        from scripts.german_vocab.build_vocab import lemmatize_and_count
+
+        import spacy
+        nlp = spacy.load("de_core_news_lg")
+
+        text = "Tugend Tugenden Tugend Tugend"
+        counts, archaic_map = lemmatize_and_count(text, nlp)
+        # All forms should collapse to one lemma
+        assert len(counts) == 1
+        lemma = list(counts.keys())[0]
+        assert counts[lemma] == 4
+
+    def test_preserves_archaic_forms(self):
+        from scripts.german_vocab.build_vocab import lemmatize_and_count
+
+        import spacy
+        nlp = spacy.load("de_core_news_lg")
+
+        # "Thiere" is archaic for "Tiere" (animals)
+        text = "Thiere Thiere Thiere Thiere"
+        counts, archaic_map = lemmatize_and_count(text, nlp)
+        # Should have a modern lemma with archaic map entry
+        has_archaic = any(v for v in archaic_map.values() if v)
+        assert has_archaic
