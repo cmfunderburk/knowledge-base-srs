@@ -3,6 +3,7 @@ data/**/*.db
 data/**/*.json
 data/govt_spending/
 *.apkg
+*.ankiaddon
 *.env
 resources/
 __pycache__/

@@ -84,6 +84,7 @@ def add_or_update_model() -> None:
         model["tmpls"][0]["qfmt"] = new_front
 
     model["tmpls"][0]["afmt"] = enhanced_cloze()["tmpls"][0]["afmt"]
+    model["css"] = enhanced_cloze()["css"]
     mw.col.models.update_dict(model)
 
 
