@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import re
 import sqlite3
@@ -221,9 +222,18 @@ USER_AGENT = "GermanVocabDeckBuilder/1.0 (educational project)"
 FETCH_DELAY = 0.5  # seconds between requests (conservative to avoid 429s)
 
 
+def _cache_path(cache_dir: Path, word: str) -> Path:
+    """Generate a case-safe cache filename using SHA-256 hash.
+
+    Avoids Dropbox case-conflict issues on case-insensitive filesystems.
+    """
+    h = hashlib.sha256(word.encode()).hexdigest()[:16]
+    return cache_dir / f"{h}.json"
+
+
 def load_cached(cache_dir: Path, word: str) -> dict | None:
     """Load a cached Wiktionary response, or None on miss."""
-    cache_file = cache_dir / f"{urllib.parse.quote(word, safe='')}.json"
+    cache_file = _cache_path(cache_dir, word)
     if cache_file.exists():
         return json.loads(cache_file.read_text(encoding="utf-8"))
     return None
@@ -231,7 +241,7 @@ def load_cached(cache_dir: Path, word: str) -> dict | None:
 
 def save_cached(cache_dir: Path, word: str, data: dict) -> None:
     """Save a Wiktionary response to the cache."""
-    cache_file = cache_dir / f"{urllib.parse.quote(word, safe='')}.json"
+    cache_file = _cache_path(cache_dir, word)
     cache_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
@@ -306,8 +316,16 @@ def parse_wiktionary_response(data: dict) -> dict | None:
     }
 
 
+def _try_cached(word: str, cache_dir: Path) -> dict | None:
+    """Check cache only — no network request."""
+    cached = load_cached(cache_dir, word)
+    if cached is not None:
+        return parse_wiktionary_response(cached)
+    return None
+
+
 def _try_fetch(word: str, cache_dir: Path) -> dict | None:
-    """Try fetching a single word from Wiktionary, using cache."""
+    """Try fetching a single word from Wiktionary, using cache first."""
     cached = load_cached(cache_dir, word)
     if cached is not None:
         return parse_wiktionary_response(cached)
@@ -320,62 +338,58 @@ def _try_fetch(word: str, cache_dir: Path) -> dict | None:
     return None
 
 
-def _generate_fallbacks(word: str) -> list[str]:
-    """Generate fallback forms to try when Wiktionary lookup fails.
-
-    spaCy's German lemmatizer often truncates words (Gedanke→Gedank,
-    Seele→Seel, Name→Nam). This generates plausible dictionary forms.
-    """
-    fallbacks = []
-
-    # Opposite case
-    alt = word[0].lower() + word[1:] if word[0].isupper() else word[0].upper() + word[1:]
-    if alt != word:
-        fallbacks.append(alt)
-
-    # Append -e (handles truncated nouns: Gedank→Gedanke, Seel→Seele, etc.)
-    fallbacks.append(word + "e")
-    fallbacks.append(word + "e" if word[0].isupper() else word[0].upper() + word[1:] + "e")
-
-    # Append -en (handles truncated verbs)
-    fallbacks.append(word + "en")
-
-    # Archaic normalization (in case lemma kept archaic spelling)
-    archaic = normalize_archaic(word)
-    if archaic != word:
-        fallbacks.append(archaic)
-        fallbacks.append(archaic + "e")
-        fallbacks.append(archaic + "en")
-
-    # Deduplicate while preserving order
-    seen = {word}
-    unique = []
-    for f in fallbacks:
-        if f not in seen:
-            seen.add(f)
-            unique.append(f)
-    return unique
-
-
 def fetch_definition(word: str, cache_dir: Path, pos_hint: str = "") -> dict | None:
     """Fetch and parse a Wiktionary definition, with caching and fallback.
 
-    Tries the word as-is, then a series of fallback forms (opposite case,
-    with -e/-en appended, archaic normalization) to handle spaCy lemma
-    truncation and archaic spellings.
+    Strategy (minimizes API calls to avoid rate limiting):
+    1. Check cache for word and all fallback forms (free)
+    2. Fetch word as-is from API
+    3. Fetch case-flipped variant
+    4. Fetch with -e appended (spaCy truncation fix)
+    5. Give up
     """
-    # Try the word as-is
-    result = _try_fetch(word, cache_dir)
-    if result is not None:
-        return result
+    # Generate all forms to try
+    forms = [word]
+    # Opposite case
+    alt = word[0].lower() + word[1:] if word[0].isupper() else word[0].upper() + word[1:]
+    if alt != word:
+        forms.append(alt)
+    # +e variants (truncated nouns: Gedank→Gedanke, Seel→Seele)
+    forms.append(word + "e")
+    if alt != word:
+        forms.append(alt + "e")
+    # +en (truncated verbs)
+    forms.append(word + "en")
+    # Archaic normalization
+    archaic = normalize_archaic(word)
+    if archaic != word:
+        forms.append(archaic)
+        forms.append(archaic + "e")
 
-    # Try fallbacks
-    for alt in _generate_fallbacks(word):
-        result = _try_fetch(alt, cache_dir)
+    # Deduplicate
+    seen = set()
+    unique_forms = []
+    for f in forms:
+        if f not in seen:
+            seen.add(f)
+            unique_forms.append(f)
+
+    # Phase 1: check cache for ALL forms (no network cost)
+    for form in unique_forms:
+        result = _try_cached(form, cache_dir)
         if result is not None:
             return result
 
-    # Mark as miss in cache (empty dict)
+    # Phase 2: fetch at most 3 forms from the API
+    for form in unique_forms[:3]:
+        # Skip if already cached (even as a miss)
+        if load_cached(cache_dir, form) is not None:
+            continue
+        result = _try_fetch(form, cache_dir)
+        if result is not None:
+            return result
+
+    # Mark primary word as miss
     save_cached(cache_dir, word, {})
     return None
 
@@ -417,7 +431,8 @@ def build_vocab(*, force: bool = False) -> None:
         sys.exit(1)
 
     print("Loading spaCy model...")
-    nlp = spacy.load("de_core_news_lg")
+    nlp = spacy.load("de_core_news_lg", exclude=["ner", "parser"])
+    nlp.add_pipe("sentencizer")
     nlp.max_length = 2_000_000
 
     # Load and filter texts
