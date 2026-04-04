@@ -211,7 +211,7 @@ def filter_non_german(text: str, nlp: spacy.Language) -> str:
 
 WIKTIONARY_API = "https://en.wiktionary.org/api/rest_v1/page/definition"
 USER_AGENT = "GermanVocabDeckBuilder/1.0 (educational project)"
-FETCH_DELAY = 0.2  # seconds between requests
+FETCH_DELAY = 0.5  # seconds between requests (conservative to avoid 429s)
 
 
 def load_cached(cache_dir: Path, word: str) -> dict | None:
@@ -229,16 +229,29 @@ def save_cached(cache_dir: Path, word: str, data: dict) -> None:
 
 
 def fetch_wiktionary(word: str) -> dict | None:
-    """Fetch a word definition from the Wiktionary REST API."""
+    """Fetch a word definition from the Wiktionary REST API.
+
+    Retries on 429 (rate limit) with exponential backoff.
+    Returns None on 404 or persistent errors.
+    """
     url = f"{WIKTIONARY_API}/{urllib.parse.quote(word)}"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError:
-        return None
-    except (urllib.error.URLError, TimeoutError):
-        return None
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                wait = 2 ** attempt  # 1, 2, 4, 8 seconds
+                print(f"  Rate limited on '{word}', waiting {wait}s...")
+                time.sleep(wait)
+                continue
+            if e.code == 404:
+                return None
+            return None
+        except (urllib.error.URLError, TimeoutError):
+            return None
+    return None
 
 
 def parse_wiktionary_response(data: dict) -> dict | None:
