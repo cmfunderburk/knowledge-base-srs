@@ -72,52 +72,55 @@ def lemmatize_and_count(
 ) -> tuple[Counter[str], dict[str, str]]:
     """Lemmatize text with spaCy and count lemma frequencies.
 
+    Processes in paragraph-sized chunks via nlp.pipe() for speed.
+
     Returns:
         counts: Counter mapping lemma → frequency
         archaic_map: dict mapping lemma → archaic form (if different)
     """
-    doc = nlp(text)
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     counts: Counter[str] = Counter()
     archaic_map: dict[str, str] = {}
 
-    for token in doc:
-        if token.is_space or token.is_punct:
-            continue
-        if token.pos_ in FUNCTION_POS:
-            continue
-        if token.pos_ == "PROPN":
-            continue
-        if len(token.text) <= 2:
-            continue
+    for doc in nlp.pipe(paragraphs, batch_size=50):
+        for token in doc:
+            if token.is_space or token.is_punct:
+                continue
+            if token.pos_ in FUNCTION_POS:
+                continue
+            if token.pos_ == "PROPN":
+                continue
+            if len(token.text) <= 2:
+                continue
 
-        lemma = token.lemma_.strip()
-        if not lemma or len(lemma) <= 2:
-            continue
+            lemma = token.lemma_.strip()
+            if not lemma or len(lemma) <= 2:
+                continue
 
-        # Normalize archaic spellings
-        modern = normalize_archaic(lemma)
+            # Normalize archaic spellings
+            modern = normalize_archaic(lemma)
 
-        # Capitalize nouns (German convention)
-        if token.pos_ == "NOUN" and not modern[0].isupper():
-            modern = modern[0].upper() + modern[1:]
+            # Capitalize nouns (German convention)
+            if token.pos_ == "NOUN" and not modern[0].isupper():
+                modern = modern[0].upper() + modern[1:]
 
-        # Strip spurious trailing "e" from lemmas when the original token
-        # ended in "en" — spaCy sometimes returns a stem like "Tugende"
-        # instead of "Tugend" for plural forms (e.g. "Tugenden" → "Tugende")
-        if (
-            modern.endswith("e")
-            and len(modern) > 3
-            and token.text.lower().endswith("en")
-        ):
-            modern = modern[:-1]
+            # Strip spurious trailing "e" from lemmas when the original token
+            # ended in "en" — spaCy sometimes returns a stem like "Tugende"
+            # instead of "Tugend" for plural forms (e.g. "Tugenden" → "Tugende")
+            if (
+                modern.endswith("e")
+                and len(modern) > 3
+                and token.text.lower().endswith("en")
+            ):
+                modern = modern[:-1]
 
-        # Track archaic form if normalization changed the original token
-        original = token.text
-        original_normalized = normalize_archaic(original)
-        if original_normalized != original and modern not in archaic_map:
-            archaic_map[modern] = original
+            # Track archaic form if normalization changed the original token
+            original = token.text
+            original_normalized = normalize_archaic(original)
+            if original_normalized != original and modern not in archaic_map:
+                archaic_map[modern] = original
 
-        counts[modern] += 1
+            counts[modern] += 1
 
     return counts, archaic_map
 
@@ -194,18 +197,22 @@ def load_wittgenstein(path: Path) -> str:
 def filter_non_german(text: str, nlp: spacy.Language) -> str:
     """Remove non-German passages (Latin quotes etc.) using spaCy POS tagging.
 
-    Processes text sentence-by-sentence. Drops any sentence where more than
-    50% of tokens are tagged as X (foreign) or PUNCT.
+    Processes text in paragraph-sized chunks via nlp.pipe() for speed.
+    Drops any sentence where more than 50% of tokens are tagged as X
+    (foreign) or PUNCT.
     """
-    doc = nlp(text)
+    # Split into paragraphs to avoid processing one huge document
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+
     german_sents = []
-    for sent in doc.sents:
-        tokens = [t for t in sent if not t.is_space]
-        if not tokens:
-            continue
-        foreign_count = sum(1 for t in tokens if t.pos_ in ("X", "PUNCT"))
-        if foreign_count / len(tokens) < 0.5:
-            german_sents.append(sent.text)
+    for doc in nlp.pipe(paragraphs, batch_size=50):
+        for sent in doc.sents:
+            tokens = [t for t in sent if not t.is_space]
+            if not tokens:
+                continue
+            foreign_count = sum(1 for t in tokens if t.pos_ in ("X", "PUNCT"))
+            if foreign_count / len(tokens) < 0.5:
+                german_sents.append(sent.text)
     return " ".join(german_sents)
 
 
