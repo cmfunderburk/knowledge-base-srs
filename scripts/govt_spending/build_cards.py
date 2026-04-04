@@ -24,19 +24,25 @@ import matplotlib.pyplot as plt
 
 DATA_DIR = Path("data/govt_spending")
 
-# Consistent color palette for COFOG divisions across all cards
+# Colorblind-friendly palette based on Wong/Okabe-Ito
 COFOG_COLORS = {
-    "General Public Services": "#1f77b4",
-    "Defence": "#ff7f0e",
-    "Public Order & Safety": "#2ca02c",
-    "Economic Affairs": "#d62728",
-    "Environmental Protection": "#9467bd",
-    "Housing & Community Amenities": "#8c564b",
-    "Health": "#e377c2",
-    "Recreation, Culture & Religion": "#7f7f7f",
-    "Education": "#bcbd22",
-    "Social Protection": "#17becf",
+    "General Public Services": "#0072B2",
+    "Defence": "#E69F00",
+    "Public Order & Safety": "#56B4E9",
+    "Economic Affairs": "#009E73",
+    "Environmental Protection": "#F0E442",
+    "Housing & Community Amenities": "#CC79A7",
+    "Health": "#D55E00",
+    "Recreation, Culture & Religion": "#999999",
+    "Education": "#0072B2",
+    "Social Protection": "#E69F00",
 }
+
+# 10-color colorblind-friendly palette for US agency pie charts
+AGENCY_COLORS = [
+    "#0072B2", "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+    "#CC79A7", "#D55E00", "#999999", "#0072B2", "#E69F00",
+]
 
 OTHER_COLOR = "#cccccc"
 
@@ -49,7 +55,12 @@ def svg_from_fig(fig: plt.Figure) -> str:
     svg = buf.getvalue()
     # Strip XML declaration and DOCTYPE for embedding in HTML
     lines = svg.split("\n")
-    svg_lines = [l for l in lines if not l.startswith("<?xml") and not l.startswith("<!DOCTYPE")]
+    svg_lines = [
+        l for l in lines
+        if not l.startswith("<?xml")
+        and not l.startswith("<!DOCTYPE")
+        and "svg11.dtd" not in l
+    ]
     return "\n".join(svg_lines)
 
 
@@ -171,8 +182,7 @@ def build_us_agency_cards(writer: csv.writer) -> int:
             labels.append("Other")
             values.append(other_pct)
 
-        tab10 = plt.cm.tab10.colors
-        colors = [tab10[i % 10] for i in range(len(labels))]
+        colors = [AGENCY_COLORS[i % len(AGENCY_COLORS)] for i in range(len(labels))]
         if other_pct > 0.5:
             colors[-1] = OTHER_COLOR
 
