@@ -20,6 +20,7 @@ gen-import-csv = "knowledge_base.srs.csv_importer:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
