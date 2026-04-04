@@ -1,6 +1,7 @@
 data/**/*.csv
 data/**/*.db
 data/**/*.json
+data/govt_spending/
 *.apkg
 *.env
 resources/
