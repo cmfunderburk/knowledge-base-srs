@@ -286,34 +286,76 @@ def parse_wiktionary_response(data: dict) -> dict | None:
     }
 
 
-def fetch_definition(word: str, cache_dir: Path, pos_hint: str = "") -> dict | None:
-    """Fetch and parse a Wiktionary definition, with caching and fallback."""
+def _try_fetch(word: str, cache_dir: Path) -> dict | None:
+    """Try fetching a single word from Wiktionary, using cache."""
     cached = load_cached(cache_dir, word)
     if cached is not None:
-        result = parse_wiktionary_response(cached)
-        if result is not None:
-            return result
+        return parse_wiktionary_response(cached)
 
     data = fetch_wiktionary(word)
     time.sleep(FETCH_DELAY)
-
     if data is not None:
         save_cached(cache_dir, word, data)
-        result = parse_wiktionary_response(data)
+        return parse_wiktionary_response(data)
+    return None
+
+
+def _generate_fallbacks(word: str) -> list[str]:
+    """Generate fallback forms to try when Wiktionary lookup fails.
+
+    spaCy's German lemmatizer often truncates words (Gedanke→Gedank,
+    Seele→Seel, Name→Nam). This generates plausible dictionary forms.
+    """
+    fallbacks = []
+
+    # Opposite case
+    alt = word[0].lower() + word[1:] if word[0].isupper() else word[0].upper() + word[1:]
+    if alt != word:
+        fallbacks.append(alt)
+
+    # Append -e (handles truncated nouns: Gedank→Gedanke, Seel→Seele, etc.)
+    fallbacks.append(word + "e")
+    fallbacks.append(word + "e" if word[0].isupper() else word[0].upper() + word[1:] + "e")
+
+    # Append -en (handles truncated verbs)
+    fallbacks.append(word + "en")
+
+    # Archaic normalization (in case lemma kept archaic spelling)
+    archaic = normalize_archaic(word)
+    if archaic != word:
+        fallbacks.append(archaic)
+        fallbacks.append(archaic + "e")
+        fallbacks.append(archaic + "en")
+
+    # Deduplicate while preserving order
+    seen = {word}
+    unique = []
+    for f in fallbacks:
+        if f not in seen:
+            seen.add(f)
+            unique.append(f)
+    return unique
+
+
+def fetch_definition(word: str, cache_dir: Path, pos_hint: str = "") -> dict | None:
+    """Fetch and parse a Wiktionary definition, with caching and fallback.
+
+    Tries the word as-is, then a series of fallback forms (opposite case,
+    with -e/-en appended, archaic normalization) to handle spaCy lemma
+    truncation and archaic spellings.
+    """
+    # Try the word as-is
+    result = _try_fetch(word, cache_dir)
+    if result is not None:
+        return result
+
+    # Try fallbacks
+    for alt in _generate_fallbacks(word):
+        result = _try_fetch(alt, cache_dir)
         if result is not None:
             return result
 
-    # Fallback: try opposite case
-    alt = word[0].lower() + word[1:] if word[0].isupper() else word[0].upper() + word[1:]
-    if alt != word:
-        data = fetch_wiktionary(alt)
-        time.sleep(FETCH_DELAY)
-        if data is not None:
-            save_cached(cache_dir, alt, data)
-            result = parse_wiktionary_response(data)
-            if result is not None:
-                return result
-
+    # Mark as miss in cache (empty dict)
     save_cached(cache_dir, word, {})
     return None
 
