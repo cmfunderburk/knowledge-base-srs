@@ -9,6 +9,7 @@ dependencies = [
     "requests>=2.31",
     "openpyxl>=3.1",
     "matplotlib>=3.8",
+    "spacy>=3.7",
 ]
 
 [project.scripts]
