@@ -262,3 +262,61 @@ class TestWiktionaryCache:
         cache_dir = tmp_path / ".wiktionary_cache"
         cache_dir.mkdir()
         assert load_cached(cache_dir, "missing") is None
+
+
+class TestWriteCsv:
+    def test_writes_expected_columns(self, tmp_path):
+        from scripts.german_vocab.build_vocab import write_csv
+
+        cards = [
+            {
+                "german": "Tugend",
+                "english": "virtue",
+                "pos": "Noun",
+                "example_de": "Ohne Tugend gibt es keine Freiheit.",
+                "example_en": "Without virtue, there is no freedom.",
+                "archaic_form": "",
+                "source": "both",
+                "frequency": 133,
+                "needs_review": "",
+            }
+        ]
+        out = tmp_path / "cards.csv"
+        write_csv(cards, out)
+
+        import csv
+        with open(out) as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        assert len(rows) == 1
+        assert rows[0]["german"] == "Tugend"
+        assert rows[0]["english"] == "virtue"
+        assert rows[0]["pos"] == "Noun"
+        assert rows[0]["frequency"] == "133"
+
+    def test_refuses_overwrite_without_force(self, tmp_path):
+        from scripts.german_vocab.build_vocab import write_csv
+
+        out = tmp_path / "cards.csv"
+        out.write_text("existing content")
+
+        with pytest.raises(FileExistsError):
+            write_csv([], out, force=False)
+
+    def test_allows_overwrite_with_force(self, tmp_path):
+        from scripts.german_vocab.build_vocab import write_csv
+
+        out = tmp_path / "cards.csv"
+        out.write_text("existing content")
+
+        write_csv([{
+            "german": "Test", "english": "test", "pos": "Noun",
+            "example_de": "", "example_en": "", "archaic_form": "",
+            "source": "both", "frequency": 5, "needs_review": "",
+        }], out, force=True)
+
+        import csv
+        with open(out) as f:
+            rows = list(csv.DictReader(f))
+        assert len(rows) == 1

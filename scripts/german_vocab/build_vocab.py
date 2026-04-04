@@ -10,6 +10,7 @@ Usage:
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 import sqlite3
@@ -302,3 +303,28 @@ def fetch_definition(word: str, cache_dir: Path, pos_hint: str = "") -> dict | N
 
     save_cached(cache_dir, word, {})
     return None
+
+
+CSV_COLUMNS = [
+    "german", "english", "pos", "example_de", "example_en",
+    "archaic_form", "source", "frequency", "needs_review",
+]
+
+
+def write_csv(
+    cards: list[dict], path: Path, *, force: bool = False
+) -> None:
+    """Write card data to CSV.
+
+    Raises FileExistsError if path exists and force is False.
+    """
+    if path.exists() and not force:
+        raise FileExistsError(
+            f"{path} already exists. Use --force to overwrite."
+        )
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        for card in cards:
+            writer.writerow(card)
