@@ -68,3 +68,51 @@ class TestLoadExclusionSet:
         result = load_exclusion_set(apkg)
         assert "hund" in result
         assert "kreuzung" in result
+
+
+class TestLoadText:
+    def test_strips_gutenberg_boilerplate(self, tmp_path):
+        from scripts.german_vocab.build_vocab import load_zarathustra
+
+        text_file = tmp_path / "z.txt"
+        text_file.write_text(
+            "Title: Test\n\n"
+            "*** START OF THE PROJECT GUTENBERG EBOOK ***\n\n"
+            "Echte deutsche Worte hier.\n\n"
+            "*** END OF THE PROJECT GUTENBERG EBOOK ***\n\n"
+            "Gutenberg footer stuff.\n"
+        )
+        result = load_zarathustra(text_file)
+        assert "Echte deutsche Worte hier." in result
+        assert "Gutenberg footer" not in result
+        assert "Title: Test" not in result
+
+    def test_strips_yaml_frontmatter(self, tmp_path):
+        from scripts.german_vocab.build_vocab import load_wittgenstein
+
+        text_file = tmp_path / "w.md"
+        text_file.write_text(
+            "---\nauthor: Wittgenstein\ntitle: PI\n---\n\n"
+            "Echte deutsche Worte hier.\n"
+        )
+        result = load_wittgenstein(text_file)
+        assert "Echte deutsche Worte hier." in result
+        assert "author:" not in result
+
+
+class TestFilterLatin:
+    def test_removes_latin_passages(self):
+        from scripts.german_vocab.build_vocab import filter_non_german
+
+        import spacy
+        nlp = spacy.load("de_core_news_lg")
+
+        text = (
+            "In diesen Worten erhalten wir ein bestimmtes Bild. "
+            "cum ipsi appellabant rem aliquam et cum secundum eam vocem. "
+            "Die Wörter der Sprache benennen Gegenstände."
+        )
+        result = filter_non_german(text, nlp)
+        assert "bestimmtes Bild" in result
+        assert "benennen Gegenstände" in result
+        assert "appellabant" not in result

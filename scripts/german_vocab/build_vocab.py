@@ -16,6 +16,8 @@ import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import spacy
+
 
 def load_exclusion_set(apkg_path: Path) -> set[str]:
     """Extract all German word forms from an .apkg into a lowercase set.
@@ -62,3 +64,43 @@ def load_exclusion_set(apkg_path: Path) -> set[str]:
                         forms.add(word)
 
     return forms
+
+
+def load_zarathustra(path: Path) -> str:
+    """Load Zarathustra text, stripping Project Gutenberg boilerplate."""
+    text = path.read_text(encoding="utf-8")
+    start = text.find("*** START OF")
+    if start != -1:
+        text = text[text.index("\n", start) + 1:]
+    end = text.find("*** END OF")
+    if end != -1:
+        text = text[:end]
+    return text.strip()
+
+
+def load_wittgenstein(path: Path) -> str:
+    """Load Wittgenstein text, stripping YAML frontmatter."""
+    text = path.read_text(encoding="utf-8")
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end != -1:
+            text = text[end + 3:]
+    return text.strip()
+
+
+def filter_non_german(text: str, nlp: spacy.Language) -> str:
+    """Remove non-German passages (Latin quotes etc.) using spaCy POS tagging.
+
+    Processes text sentence-by-sentence. Drops any sentence where more than
+    50% of tokens are tagged as X (foreign) or PUNCT.
+    """
+    doc = nlp(text)
+    german_sents = []
+    for sent in doc.sents:
+        tokens = [t for t in sent if not t.is_space]
+        if not tokens:
+            continue
+        foreign_count = sum(1 for t in tokens if t.pos_ in ("X", "PUNCT"))
+        if foreign_count / len(tokens) < 0.5:
+            german_sents.append(sent.text)
+    return " ".join(german_sents)
