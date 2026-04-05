@@ -241,6 +241,7 @@ class GenerationReviewApp(App):
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+s", "toggle_stats", "Stats", priority=True),
+        Binding("ctrl+b", "back_to_catalog", "Catalog", priority=True),
     ]
 
     def __init__(
@@ -274,6 +275,7 @@ class GenerationReviewApp(App):
         self.show_catalog = show_catalog
         self.paste_cards = paste_cards
         self.start_level = min(start_level, MAX_MASKING_LEVEL)
+        self._original_start_level = self.start_level
         self.conn = None
         self.queue: list[QueueItem] = []
         self.total_reviewed: int = 0
@@ -367,6 +369,39 @@ class GenerationReviewApp(App):
             "All caught up! Press Ctrl+Q to quit."
         )
         self._hide_input()
+
+    def _reset_session_state(self) -> None:
+        """Zero out all session state for a fresh start."""
+        self.queue = []
+        self.total_reviewed = 0
+        self.total_cards = 0
+        self._pass_counts = {}
+        self._awaiting_gen_grade = False
+        self._awaiting_recall_grade = False
+        self._awaiting_advance = False
+        self._pending_requeue = None
+        self._current_item = None
+        self._last_diff_markup = ""
+        self.showing_stats = False
+        self.practice_mode = False
+        self.ordered_practice = False
+        self.start_level = self._original_start_level
+
+    def action_back_to_catalog(self) -> None:
+        """Return to the catalog screen, discarding current session."""
+        if isinstance(self.screen, CatalogScreen):
+            return
+        self._reset_session_state()
+        self.query_one("#card-header", Static).update("")
+        self.query_one("#question", Static).update("")
+        self.query_one("#masked-text", Static).update("")
+        self.query_one("#result", Static).update("")
+        self.query_one("#stats-display", Static).update("")
+        self._hide_input()
+        self.push_screen(
+            CatalogScreen(self.conn, self.deck_filter),
+            callback=self._on_catalog_result,
+        )
 
     # ------------------------------------------------------------------
     # Queue management
