@@ -310,3 +310,37 @@ QA_CARDS: list[tuple[str, str, str, list[str]]] = [
         ["CFA::R1::1.6"],
     ),
 ]
+
+# --- Export -------------------------------------------------------------
+
+
+def export_apkg() -> Path:
+    """Build deck and write .apkg."""
+    deck = genanki.Deck(DECK_ID, "CFA::Reading 1")
+
+    for card_id, content, tags in CLOZE_CARDS:
+        note = genanki.Note(
+            model=cloze_model,
+            fields=[content, "", "", "", ""],
+            tags=tags,
+            guid=stable_guid(card_id),
+        )
+        deck.add_note(note)
+
+    for card_id, front, back, tags in QA_CARDS:
+        note = genanki.Note(
+            model=basic_model,
+            fields=[front, back],
+            tags=tags,
+            guid=stable_guid(card_id),
+        )
+        deck.add_note(note)
+
+    out_path = OUT_DIR / "cfa_reading1.apkg"
+    genanki.Package([deck]).write_to_file(str(out_path))
+    print(f"Wrote {out_path}: {len(CLOZE_CARDS)} cloze + {len(QA_CARDS)} QA = {len(CLOZE_CARDS) + len(QA_CARDS)} notes")
+    return out_path
+
+
+if __name__ == "__main__":
+    export_apkg()
