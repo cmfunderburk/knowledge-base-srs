@@ -3,6 +3,7 @@ data/**/*.db
 data/**/*.json
 data/govt_spending/
 *.apkg
+scripts/cfa_reading1/*.apkg
 *.ankiaddon
 *.env
 resources/
