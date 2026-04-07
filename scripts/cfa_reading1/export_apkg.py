@@ -22,6 +22,19 @@ DECK_ID = 2026040703
 
 OUT_DIR = Path(__file__).parent
 
+# Enhanced Cloze addon templates — read from installed addon so the .apkg
+# contains the full HTML/CSS/JS and cards render correctly on import.
+ADDON_NOTE_TYPE_DIR = Path.home() / ".local/share/Anki2/addons21/1990296174/note_type"
+
+def _read_addon_templates() -> tuple[str, str, str]:
+    """Read front, back, CSS from the installed Enhanced Cloze addon."""
+    front = (ADDON_NOTE_TYPE_DIR / "Enhanced_Cloze_Front_Side.html").read_text()
+    back = (ADDON_NOTE_TYPE_DIR / "Enhanced_Cloze_Back_Side.html").read_text()
+    css = (ADDON_NOTE_TYPE_DIR / "Enhanced_Cloze_CSS.css").read_text()
+    return front, back, css
+
+_ec_front, _ec_back, _ec_css = _read_addon_templates()
+
 # --- Models ------------------------------------------------------------
 
 cloze_model = genanki.Model(
@@ -37,10 +50,11 @@ cloze_model = genanki.Model(
     templates=[
         {
             "name": "Enhanced Cloze",
-            "qfmt": "{{cloze:Content}}",
-            "afmt": "{{cloze:Content}}<br>{{Note}}",
+            "qfmt": _ec_front,
+            "afmt": _ec_back,
         },
     ],
+    css=_ec_css,
     model_type=genanki.Model.CLOZE,
 )
 
