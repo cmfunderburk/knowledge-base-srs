@@ -75,33 +75,33 @@ CLOZE_CARDS: list[tuple[str, list[str]]] = [
     # Section 1.2
     (
         "cfa_r1_cloze_01",
-        r"Interest rate \(r\): {{c1::required rate of return}}, {{c2::discount rate}}, or {{c3::opportunity cost}}.",
+        r"Interest rate \(r\): {{c1::required rate of return}}, {{c1::discount rate}}, or {{c1::opportunity cost}}.",
         ["CFA::R1::1.2"],
     ),
     (
         "cfa_r1_cloze_02",
-        r"\(r =\) {{c1::real risk-free rate}} + {{c2::inflation premium}} + {{c3::default risk premium}} + {{c4::liquidity premium}} + {{c5::maturity premium}}",
+        r"\(r =\) {{c1::real risk-free rate}} + {{c1::inflation premium}} + {{c1::default risk premium}} + {{c1::liquidity premium}} + {{c1::maturity premium}}",
         ["CFA::R1::1.2"],
     ),
     (
         "cfa_r1_cloze_03",
-        r"Nominal risk-free rate \(\approx\) {{c1::real risk-free rate}} + {{c2::inflation premium}}",
+        r"Nominal risk-free rate \(\approx\) {{c1::real risk-free rate}} + {{c1::inflation premium}}",
         ["CFA::R1::1.2"],
     ),
     (
         "cfa_r1_cloze_04",
-        r"Exact: \((1 + r_{nominal\ RF}) = (1 +\) {{c1::\(r_{real\ RF}\)}})\((1 +\) {{c2::inflation premium}}\()\)",
+        r"Exact: \((1 + r_{nominal\ RF}) = (1 +\) {{c1::\(r_{real\ RF}\)}})\((1 +\) {{c1::inflation premium}}\()\)",
         ["CFA::R1::1.2"],
     ),
     # Section 1.3
     (
         "cfa_r1_cloze_10",
-        r"Total return = {{c1::income yield}} + {{c2::capital gain/loss}}",
+        r"Total return = {{c1::income yield}} + {{c1::capital gain/loss}}",
         ["CFA::R1::1.3"],
     ),
     (
         "cfa_r1_cloze_11",
-        r"\(R = \frac{ {{c1::P_1}} - {{c2::P_0}} + {{c3::I_1}} }{ {{c4::P_0}} }\)",
+        r"\(R = \frac{ {{c1::P_1}} - {{c1::P_0}} + {{c1::I_1}} }{ {{c1::P_0}} }\)",
         ["CFA::R1::1.3"],
     ),
     (
@@ -111,12 +111,12 @@ CLOZE_CARDS: list[tuple[str, list[str]]] = [
     ),
     (
         "cfa_r1_cloze_13",
-        r"Harmonic mean: \(\bar{X}_H = \frac{ {{c1::n}} }{ {{c2::\sum_{i=1}^{n}(1/X_i)}} }\)",
+        r"Harmonic mean: \(\bar{X}_H = \frac{ {{c1::n}} }{ {{c1::\sum_{i=1}^{n}(1/X_i)}} }\)",
         ["CFA::R1::1.3"],
     ),
     (
         "cfa_r1_cloze_14",
-        r"Ordering: {{c1::\(\bar{X}_H\)}} \(\leq\) {{c2::\(\bar{X}_G\)}} \(\leq\) {{c3::\(\bar{X}_A\)}}. Equal only when {{c4::all observations are the same}}.",
+        r"Ordering: {{c1::\(\bar{X}_H\)}} \(\leq\) {{c1::\(\bar{X}_G\)}} \(\leq\) {{c1::\(\bar{X}_A\)}}. Equal only when {{c1::all observations are the same}}.",
         ["CFA::R1::1.3"],
     ),
     (
@@ -127,28 +127,28 @@ CLOZE_CARDS: list[tuple[str, list[str]]] = [
     # Section 1.4
     (
         "cfa_r1_cloze_21",
-        r"Money-weighted return = {{c1::IRR}}: \(\displaystyle\sum_{t=0}^{T} \frac{CF_t}{(1 + IRR)^t} =\) {{c2::\(0\)}}",
+        r"Money-weighted return = {{c1::IRR}}: \(\displaystyle\sum_{t=0}^{T} \frac{CF_t}{(1 + IRR)^t} =\) {{c1::\(0\)}}",
         ["CFA::R1::1.4"],
     ),
     (
         "cfa_r1_cloze_22",
-        "Three steps for time-weighted return: (1) {{c1::price portfolio before each cash flow}}, (2) {{c2::calculate HPR for each subperiod}}, (3) {{c3::link (compound) subperiod returns}}",
+        "Three steps for time-weighted return: (1) {{c1::price portfolio before each cash flow}}, (2) {{c1::calculate HPR for each subperiod}}, (3) {{c1::link (compound) subperiod returns}}",
         ["CFA::R1::1.4"],
     ),
     # Section 1.5
     (
         "cfa_r1_cloze_26",
-        r"\(R_{annual} = (1 +\) {{c1::\(R_{period}\)}}\()^{c} -\) {{c2::\(1\)}}, where \(c =\) {{c3::number of periods in a year}}",
+        r"\(R_{annual} = (1 +\) {{c1::\(R_{period}\)}}\()^{c} -\) {{c1::\(1\)}}, where \(c =\) {{c1::number of periods in a year}}",
         ["CFA::R1::1.5"],
     ),
     (
         "cfa_r1_cloze_27",
-        r"For holding periods longer than one year, \(c\) is a {{c1::fraction}} (e.g., 18 months \(\rightarrow c =\) {{c2::\(2/3\)}})",
+        r"For holding periods longer than one year, \(c\) is a {{c1::fraction}} (e.g., 18 months \(\rightarrow c =\) {{c1::\(2/3\)}})",
         ["CFA::R1::1.5"],
     ),
     (
         "cfa_r1_cloze_28",
-        r"\(r_{cc} =\) {{c1::\(\ln(1 + R)\)}} \(=\) {{c2::\(\ln(P_T / P_0)\)}}",
+        r"\(r_{cc} =\) {{c1::\(\ln(1 + R)\)}} \(=\) {{c1::\(\ln(P_T / P_0)\)}}",
         ["CFA::R1::1.5"],
     ),
     (
@@ -162,17 +162,17 @@ CLOZE_CARDS.extend([
     # Section 1.6
     (
         "cfa_r1_cloze_33",
-        r"After-tax nominal return = total return \(-\) taxes on {{c1::dividends}}, {{c2::interest}}, and {{c3::realized gains}}",
+        r"After-tax nominal return = total return \(-\) taxes on {{c1::dividends}}, {{c1::interest}}, and {{c1::realized gains}}",
         ["CFA::R1::1.6"],
     ),
     (
         "cfa_r1_cloze_34",
-        r"\((1 + r_{real}) = \frac{(1 +\) {{c1::\(r_{real\ RF}\)}})\((1 +\) {{c2::risk premium}}\()}{1 +\) {{c3::inflation premium}}\(}\)",
+        r"\((1 + r_{real}) = \frac{(1 +\) {{c1::\(r_{real\ RF}\)}})\((1 +\) {{c1::risk premium}}\()}{1 +\) {{c1::inflation premium}}\(}\)",
         ["CFA::R1::1.6"],
     ),
     (
         "cfa_r1_cloze_35",
-        r"\(R_L = R_P + \frac{ {{c1::V_B}} }{ {{c2::V_E}} }(\) {{c3::\(R_P - r_D\)}} \()\)",
+        r"\(R_L = R_P + \frac{ {{c1::V_B}} }{ {{c1::V_E}} }(\) {{c1::\(R_P - r_D\)}} \()\)",
         ["CFA::R1::1.6"],
     ),
 ])
