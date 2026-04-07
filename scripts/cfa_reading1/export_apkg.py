@@ -104,7 +104,7 @@ CLOZE_CARDS: list[tuple[str, list[str]]] = [
     ),
     (
         "cfa_r1_cloze_04",
-        r"Exact: \((1 + r_{nominal\ RF}) = (1 +\) {{c1::\(r_{real\ RF}\)}})\((1 +\) {{c1::inflation premium}}\()\)",
+        r"Exact: {{c1::\((1 + r_{nominal\ RF}) = (1 + r_{real\ RF})(1 + \text{inflation premium})\)}}",
         ["CFA::R1::1.2"],
     ),
     # Section 1.3
@@ -115,17 +115,17 @@ CLOZE_CARDS: list[tuple[str, list[str]]] = [
     ),
     (
         "cfa_r1_cloze_11",
-        r"\(R = \frac{ {{c1::P_1}} - {{c1::P_0}} + {{c1::I_1}} }{ {{c1::P_0}} }\)",
+        r"Holding period return: {{c1::\(R = \frac{P_1 - P_0 + I_1}{P_0}\)}}",
         ["CFA::R1::1.3"],
     ),
     (
         "cfa_r1_cloze_12",
-        r"Multi-period HPR: \(R = \prod_{t=1}^{T}(1 + R_t) -\) {{c1::\(1\)}}",
+        r"Multi-period HPR: {{c1::\(R = \prod_{t=1}^{T}(1 + R_t) - 1\)}}",
         ["CFA::R1::1.3"],
     ),
     (
         "cfa_r1_cloze_13",
-        r"Harmonic mean: \(\bar{X}_H = \frac{ {{c1::n}} }{ {{c1::\sum_{i=1}^{n}(1/X_i)}} }\)",
+        r"Harmonic mean: {{c1::\(\bar{X}_H = \frac{n}{\sum_{i=1}^{n}(1/X_i)}\)}}",
         ["CFA::R1::1.3"],
     ),
     (
@@ -152,12 +152,12 @@ CLOZE_CARDS: list[tuple[str, list[str]]] = [
     # Section 1.5
     (
         "cfa_r1_cloze_26",
-        r"\(R_{annual} = (1 +\) {{c1::\(R_{period}\)}}\()^{c} -\) {{c1::\(1\)}}, where \(c =\) {{c1::number of periods in a year}}",
+        r"Annualizing formula: {{c1::\(R_{annual} = (1 + R_{period})^{c} - 1\)}}, where \(c =\) {{c1::number of periods in a year}}",
         ["CFA::R1::1.5"],
     ),
     (
         "cfa_r1_cloze_27",
-        r"For holding periods longer than one year, \(c\) is a {{c1::fraction}} (e.g., 18 months \(\rightarrow c =\) {{c1::\(2/3\)}})",
+        r"For holding periods longer than one year, \(c\) is a {{c1::fraction}} (e.g., 18 months \(\rightarrow\) {{c1::\(c = 2/3\)}})",
         ["CFA::R1::1.5"],
     ),
     (
@@ -181,12 +181,12 @@ CLOZE_CARDS.extend([
     ),
     (
         "cfa_r1_cloze_34",
-        r"\((1 + r_{real}) = \frac{(1 +\) {{c1::\(r_{real\ RF}\)}})\((1 +\) {{c1::risk premium}}\()}{1 +\) {{c1::inflation premium}}\(}\)",
+        r"Real return: {{c1::\((1 + r_{real}) = \frac{(1 + r_{real\ RF})(1 + \text{risk premium})}{1 + \text{inflation premium}}\)}}",
         ["CFA::R1::1.6"],
     ),
     (
         "cfa_r1_cloze_35",
-        r"\(R_L = R_P + \frac{ {{c1::V_B}} }{ {{c1::V_E}} }(\) {{c1::\(R_P - r_D\)}} \()\)",
+        r"Leveraged return: {{c1::\(R_L = R_P + \frac{V_B}{V_E}(R_P - r_D)\)}}",
         ["CFA::R1::1.6"],
     ),
 ])
