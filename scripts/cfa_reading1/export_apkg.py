@@ -16,8 +16,8 @@ import genanki
 
 # --- Stable IDs (must not collide with other export scripts) -----------
 
-CLOZE_MODEL_ID = 2026040701
-BASIC_MODEL_ID = 2026040702
+CLOZE_MODEL_ID = 1775602039195  # Must match installed "Enhanced Cloze 2.1 v2"
+BASIC_MODEL_ID = 1691317181386  # Must match installed "Basic"
 DECK_ID = 2026040703
 
 OUT_DIR = Path(__file__).parent
