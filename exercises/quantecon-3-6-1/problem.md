@@ -6,13 +6,19 @@ Simulate the correlated time series
 
 The sequence of shocks {ε_t} is IID standard normal. Set T = 200 and α = 0.9.
 
-Implement:
+## Your submission must define this function
 
-    simulate(alpha: float, T: int, rng: np.random.Generator) -> np.ndarray
+```python
+def simulate(alpha: float, T: int, rng: np.random.Generator) -> np.ndarray:
+    ...  # return array of length T + 1, with x[0] = 0
+```
 
-Return the simulated series as a NumPy array of length T + 1.
+You may also add plotting code (e.g. `plt.plot(x); plt.show()`) outside the function,
+but the function itself is what the tests check.
 
-Restrict your imports to:
+## Imports
 
-    import numpy as np
-    import matplotlib.pyplot as plt
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+```
