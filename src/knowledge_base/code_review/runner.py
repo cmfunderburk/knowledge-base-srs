@@ -1,6 +1,7 @@
 import difflib
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -14,19 +15,24 @@ def run_tests(exercise_dir: Path, user_code: str) -> tuple[bool, str]:
     try:
         submission.write_text(user_code)
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(exercise_dir)
-        result = subprocess.run(
-            [
-                "python", "-m", "pytest",
-                str(exercise_dir / "test_solution.py"),
-                "-v", "--tb=short", "--no-header", "-p", "no:cacheprovider",
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        output = result.stdout + (result.stderr if result.stderr else "")
-        return result.returncode == 0, output
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = f"{exercise_dir}:{existing}" if existing else str(exercise_dir)
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable, "-m", "pytest",
+                    str(exercise_dir / "test_solution.py"),
+                    "-v", "--tb=short", "--no-header", "-p", "no:cacheprovider",
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=30,
+            )
+            output = result.stdout + result.stderr
+            return result.returncode == 0, output
+        except subprocess.TimeoutExpired:
+            return False, "Test run timed out after 30 seconds."
     finally:
         if submission.exists():
             submission.unlink()
