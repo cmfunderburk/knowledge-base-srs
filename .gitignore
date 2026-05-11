@@ -10,3 +10,6 @@ resources/
 __pycache__/
 .venv/
 .worktrees/
+
+# code-review: user submissions written during test runs
+exercises/**/submission.py
