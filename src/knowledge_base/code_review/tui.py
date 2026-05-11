@@ -355,6 +355,11 @@ class ReviewScreen(Screen):
         )
         self.query_one("#problem", Static).update(text)
 
+    def on_key(self, event) -> None:
+        if event.key == "enter":
+            event.stop()
+            self.action_start_editing()
+
     def action_go_back(self) -> None:
         if self._massed:
             self.dismiss(None)
