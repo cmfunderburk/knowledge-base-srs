@@ -298,7 +298,6 @@ class StatsScreen(Screen):
 class ReviewScreen(Screen):
     BINDINGS = [
         Binding("escape", "go_back", "Back"),
-        Binding("enter", "start_editing", "Open Editor"),
     ]
 
     CSS = """
