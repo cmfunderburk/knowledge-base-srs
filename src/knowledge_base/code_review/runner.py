@@ -5,6 +5,16 @@ import sys
 from pathlib import Path
 
 
+def _test_python() -> str:
+    """Python interpreter used to run exercise tests.
+
+    Set CODE_REVIEW_PYTHON to override — e.g. point at a conda environment:
+        export CODE_REVIEW_PYTHON=$(conda run -n base which python)
+    Defaults to the current interpreter (sys.executable).
+    """
+    return os.environ.get("CODE_REVIEW_PYTHON", sys.executable)
+
+
 def run_tests(exercise_dir: Path, user_code: str) -> tuple[bool, str]:
     """Write user_code as submission.py, run pytest, return (passed, output).
 
@@ -20,7 +30,7 @@ def run_tests(exercise_dir: Path, user_code: str) -> tuple[bool, str]:
         try:
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "pytest",
+                    _test_python(), "-m", "pytest",
                     str(exercise_dir / "test_solution.py"),
                     "-v", "--tb=short", "--no-header", "-p", "no:cacheprovider",
                 ],
