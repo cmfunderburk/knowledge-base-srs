@@ -27,6 +27,7 @@ def run_tests(exercise_dir: Path, user_code: str) -> tuple[bool, str]:
         env = os.environ.copy()
         existing = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{exercise_dir}:{existing}" if existing else str(exercise_dir)
+        env.setdefault("MPLBACKEND", "Agg")  # prevent Qt display errors in headless test runs
         try:
             result = subprocess.run(
                 [
