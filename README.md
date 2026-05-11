@@ -1,6 +1,9 @@
 # Knowledge Base
 
-An initial-encoding aid for drilling structured study material through progressive masking, exact-answer Q&A, and massed/ordered practice. Import markdown notes, CSV data, or paste raw text, then drill until material is solid (3+ passes per card). Once encoded, export to Anki for long-term spaced retrieval via FSRS.
+Two TUI tools for building and maintaining knowledge:
+
+- **SRS (`review-gen`)** — initial-encoding aid for drilling structured study material through progressive masking, exact-answer Q&A, and massed/ordered practice. Import markdown notes, CSV data, or paste raw text, then drill until material is solid (3+ passes per card). Once encoded, export to Anki for long-term spaced retrieval via FSRS.
+- **Code Review (`code-review`)** — Leitner-scheduled spaced practice for programming exercises. Write a solution in `$EDITOR`, run the exercise's tests, review a diff against the reference, then grade (Again/Hard/Good/Easy) to schedule the next repetition.
 
 ## Importing Material
 
@@ -68,13 +71,36 @@ Cards imported persistently also participate in a long-term review lifecycle:
 2. **Graduation** — 2 consecutive passes at max masking promotes to recall phase
 3. **Recall phase** — standard FSRS v6 (Again/Hard/Good/Easy); lapsing with interval < 24h demotes back to generation
 
+## Code Review
+
+Register an exercise directory, then use the TUI to drill it on a Leitner schedule:
+
+```bash
+uv run code-review add exercises/my-problem/   # register once
+uv run code-review                             # launch exercise list TUI
+```
+
+**Exercise directory layout:**
+
+```
+exercises/
+    my-problem/
+        problem.md          # shown to user; first H1 becomes the title
+        test_solution.py    # pytest tests — import from `submission`, not `solution`
+        solution.py         # optional reference; shown as diff after grading
+```
+
+**TUI flow:** select an exercise → read the problem → `$EDITOR` opens a temp file → write your solution → tests run automatically → see pass/fail + diff vs. reference → press Again / Hard / Good / Easy to schedule the next repetition.
+
+**Leitner schedule:** 5 boxes with intervals of 1 / 2 / 4 / 8 / 16 days. Again resets to box 1; Hard stays; Good advances one box; Easy advances two.
+
 ## Setup
 
 ```bash
 uv sync                              # install dependencies
 uv run gen-import                    # import LOS data (optional)
 uv run review-gen                    # launch catalog TUI
-uv run pytest                        # ~330 tests
+uv run pytest                        # ~390 tests
 ```
 
 ## Architecture
@@ -83,6 +109,8 @@ uv run pytest                        # ~330 tests
 markdown files ──→ gen-import-md ──→ data/srs.db ──→ review-gen TUI
 CSV files ──→ gen-import-csv ────┘                       │
 cfa_level1_los.json ──→ gen-import ─┘              catalog TUI (browse/select)
+
+exercises/<slug>/ ──→ code-review add ──→ data/code_exercises.db ──→ code-review TUI
 ```
 
 ### Source Files (`src/knowledge_base/srs/`)
@@ -98,3 +126,13 @@ cfa_level1_los.json ──→ gen-import ─┘              catalog TUI (browse
 | `masking.py` | Letter-level masking algorithm (3 levels) |
 | `text_scoring.py` | Token-level Levenshtein comparison, numeric-aware exact matching |
 | `fsrs.py` | Standard FSRS v6 scheduler (recall phase) |
+
+### Source Files (`src/knowledge_base/code_review/`)
+
+| File | Responsibility |
+|------|---------------|
+| `leitner.py` | 5-box Leitner scheduler; grade → box + due date |
+| `db.py` | `code_exercises` + `code_review_log` tables, CRUD, atomic `record_grade()` |
+| `runner.py` | pytest runner (writes/deletes `submission.py`) + unified diff |
+| `cli.py` | `handle_add()` — validates and registers exercise directories |
+| `tui.py` | `ExerciseListScreen`, `ReviewScreen`, `CodeReviewApp`, `main()` |

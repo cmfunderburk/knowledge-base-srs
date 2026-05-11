@@ -2,7 +2,11 @@
 
 ## Project Overview
 
-TUI-based initial-encoding aid for drilling structured study material through progressive masking and massed/ordered practice. Supports two card types: masking cards (text with progressive letter masking) and exact-answer cards (numerical/factual Q&A). Import markdown notes, CSV data, or paste raw text, then drill through practice modes that build recall. A catalog TUI lets you browse and select material across multiple sources and topics. Once material reaches 3+ successful passes, export to Anki for long-term spaced retrieval via FSRS.
+Two complementary TUI tools:
+
+**SRS (review-gen)** — initial-encoding aid for drilling structured study material through progressive masking and massed/ordered practice. Supports masking cards (text with progressive letter masking) and exact-answer cards (numerical/factual Q&A). Import markdown notes, CSV data, or paste raw text, then drill through practice modes that build recall. A catalog TUI lets you browse and select material across multiple sources and topics. Once material reaches 3+ successful passes, export to Anki for long-term spaced retrieval via FSRS.
+
+**Code Review (code-review)** — Leitner-scheduled spaced practice for programming exercises. Shows a problem statement, opens `$EDITOR` for the user's solution, runs pytest against it, shows a diff vs. the reference, and records a grade (Again/Hard/Good/Easy). Uses a 5-box Leitner system to schedule exercises. Exercises live in `exercises/<slug>/` at the repo root.
 
 ## Quick Reference
 
@@ -36,7 +40,12 @@ uv run review-gen --start-level 2       # start at max masking for familiar mate
 uv run review-gen --paste               # paste text for ephemeral drill
 uv run review-gen --paste --save-as N --deck D --topic T --source S  # persist pasted text
 
-uv run pytest                        # ~330 tests
+uv run pytest                        # ~390 tests
+
+# Code Review
+uv run code-review                      # launch exercise list TUI
+uv run code-review add <dir>            # register an exercise directory
+uv run code-review add <dir> --source S # register with source label
 ```
 
 ## Architecture
@@ -45,6 +54,8 @@ uv run pytest                        # ~330 tests
 markdown files ──→ gen-import-md ──→ data/srs.db ──→ review-gen TUI
 CSV files ──→ gen-import-csv ────┘                       │
 cfa_level1_los.json ──→ gen-import ─┘              catalog TUI (browse/select)
+
+exercises/<slug>/ ──→ code-review add ──→ data/code_exercises.db ──→ code-review TUI
 ```
 
 ### Source files (`srs/`)
@@ -57,6 +68,13 @@ cfa_level1_los.json ──→ gen-import ─┘              catalog TUI (browse
 - `masking.py` — letter-level masking algorithm (3 levels: 30%, 60%, first-letter-only)
 - `text_scoring.py` — token-level Levenshtein comparison for feedback display, numeric-aware exact matching with normalization (dashes, `~$%`, unit suffixes, trailing `.0`)
 - `fsrs.py` — standard FSRS v6 scheduler (4-button: Again/Hard/Good/Easy), used for recall phase
+
+### Source files (`code_review/`)
+- `leitner.py` — 5-box Leitner scheduler; `schedule(current_box, grade, now) → LeitnerResult`; grade 1=Again/2=Hard/3=Good/4=Easy; intervals 1/2/4/8/16 days
+- `db.py` — `code_exercises` and `code_review_log` SQLite tables; CRUD; `record_grade()` for atomic scheduling+log write; default DB at `data/code_exercises.db`
+- `runner.py` — writes user code as `submission.py`, runs pytest with `PYTHONPATH` set to the exercise dir, deletes `submission.py` in finally; `compute_diff()` for unified diff vs. reference
+- `cli.py` — `handle_add()` for `code-review add <dir>`; extracts slug from dirname, title from first H1
+- `tui.py` — `ExerciseListScreen` (due list, reload on resume) + `ReviewScreen` (problem → `$EDITOR` → test results + diff → grade buttons); `main()` entry point
 
 ## Key Constraints
 
@@ -94,8 +112,36 @@ cfa_level1_los.json ──→ gen-import ─┘              catalog TUI (browse
 - No type stubs or mypy — tests are the quality gate
 - Tests use `pytest`
 
+## Key Constraints — Code Review
+
+### Exercise directory convention
+
+```
+exercises/
+    <slug>/
+        problem.md          # shown to user; first H1 becomes the title
+        test_solution.py    # pytest tests; MUST import from `submission` (not `solution`)
+        solution.py         # reference; revealed as diff after grading (optional)
+```
+
+- Slug = directory name; registered once with `code-review add <dir>`
+- `test_solution.py` imports `from submission import <func>` — the runner writes the user's code as `submission.py` and sets `PYTHONPATH` to the exercise dir before running pytest
+- `exercises/**/submission.py` is gitignored (written at runtime, always deleted after the run)
+
+### Leitner scheduling
+
+- 5 boxes; intervals: 1 / 2 / 4 / 8 / 16 days
+- grade 1=Again → box 1, grade 2=Hard → stay, grade 3=Good → +1 box, grade 4=Easy → +2 boxes
+- Box 5 is the ceiling
+
+### DB layer
+
+- `record_grade()` writes scheduling update + review log atomically in one transaction
+- `exercises/**/submission.py` is gitignored to prevent accidental commits of in-progress work
+
 ## Data
 
 - `data/srs.db` is gitignored — personal review state, regenerated by import commands
+- `data/code_exercises.db` is gitignored — code-review scheduling state
 - `data/cfa_level1_los.json` — checked in; source data for LOS card generation
 - `data/csv_import/` — gitignored; CSVs extracted from .apkg decks for import
