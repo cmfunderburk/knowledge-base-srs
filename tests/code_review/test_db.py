@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import sqlite3 as _sqlite3
 
 import pytest
 
@@ -81,3 +82,15 @@ def test_insert_review_log(conn):
         "elapsed_days": 0.0,
     })
     assert review_id > 0
+
+
+def test_foreign_key_constraint_enforced(conn):
+    with pytest.raises(_sqlite3.IntegrityError):
+        insert_review_log(conn, {
+            "exercise_id": 9999,
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "grade": 3,
+            "prior_box": 1,
+            "new_box": 2,
+            "elapsed_days": 0.0,
+        })

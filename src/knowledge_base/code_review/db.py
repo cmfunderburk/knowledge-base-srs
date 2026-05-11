@@ -82,15 +82,23 @@ def get_due_exercises(conn: sqlite3.Connection, as_of: str) -> list[dict]:
 def update_exercise_scheduling(
     conn: sqlite3.Connection, exercise_id: int, box: int, due: str, now: str
 ) -> None:
-    conn.execute(
+    cur = conn.execute(
         "UPDATE code_exercises SET box=?, due=?, last_review=?, reps=reps+1 WHERE exercise_id=?",
         (box, due, now, exercise_id),
     )
     conn.commit()
+    if cur.rowcount == 0:
+        raise ValueError(f"No exercise with exercise_id={exercise_id}")
+
+
+_REVIEW_LOG_COLS = ("exercise_id", "timestamp", "grade", "prior_box", "new_box", "elapsed_days")
 
 
 def insert_review_log(conn: sqlite3.Connection, review: dict) -> int:
-    cols = list(review.keys())
+    unknown = set(review) - set(_REVIEW_LOG_COLS)
+    if unknown:
+        raise ValueError(f"Unknown review_log columns: {unknown}")
+    cols = [c for c in _REVIEW_LOG_COLS if c in review]
     cur = conn.execute(
         f"INSERT INTO code_review_log ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
         [review[c] for c in cols],
