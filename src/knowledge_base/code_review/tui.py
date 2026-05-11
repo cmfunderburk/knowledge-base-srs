@@ -101,7 +101,6 @@ class ExerciseListScreen(Screen):
 class MassedBrowseScreen(Screen):
     BINDINGS = [
         Binding("escape", "app.pop_screen", "Back"),
-        Binding("enter", "start_session", "Start"),
     ]
 
     MAX_SELECT = 5
@@ -162,7 +161,10 @@ class MassedBrowseScreen(Screen):
         )
 
     def on_key(self, event) -> None:
-        if event.key == "space":
+        if event.key == "enter":
+            event.stop()
+            self.action_start_session()
+        elif event.key == "space":
             event.stop()
             lv = self.query_one("#browse-list", ListView)
             item = lv.highlighted_child
