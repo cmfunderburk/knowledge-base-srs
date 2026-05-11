@@ -107,6 +107,26 @@ def insert_review_log(conn: sqlite3.Connection, review: dict) -> int:
     return cur.lastrowid
 
 
+def get_all_exercises(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM code_exercises ORDER BY slug ASC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def reset_exercise(conn: sqlite3.Connection, exercise_id: int) -> None:
+    conn.execute(
+        "UPDATE code_exercises SET box=1, reps=0, last_review=NULL, due=NULL WHERE exercise_id=?",
+        (exercise_id,),
+    )
+    conn.commit()
+
+
+def reset_all_exercises(conn: sqlite3.Connection) -> None:
+    conn.execute("UPDATE code_exercises SET box=1, reps=0, last_review=NULL, due=NULL")
+    conn.commit()
+
+
 def record_grade(
     conn: sqlite3.Connection,
     exercise_id: int,
