@@ -1,4 +1,5 @@
 import argparse
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -6,7 +7,7 @@ from knowledge_base.code_review.db import DB_PATH, add_exercise, get_exercise_by
 
 
 def _extract_title(problem_md: Path) -> str:
-    for line in problem_md.read_text().splitlines():
+    for line in problem_md.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line.startswith("# "):
             return line[2:].strip()
@@ -41,5 +42,9 @@ def handle_add(args: list[str], db_path: Path | None = None) -> None:
         print(f"error: exercise '{slug}' is already registered", file=sys.stderr)
         sys.exit(1)
 
-    exercise_id = add_exercise(conn, slug, title, parsed.source)
+    try:
+        exercise_id = add_exercise(conn, slug, title, parsed.source)
+    except sqlite3.IntegrityError:
+        print(f"error: exercise '{slug}' is already registered", file=sys.stderr)
+        sys.exit(1)
     print(f"Added '{slug}' — {title} (id={exercise_id})")

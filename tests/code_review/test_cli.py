@@ -52,22 +52,25 @@ def test_handle_add_fails_on_missing_problem_md(tmp_path, db_path):
     d = tmp_path / "incomplete-exercise"
     d.mkdir()
     (d / "test_solution.py").write_text("# tests\n")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc_info:
         handle_add([str(d)], db_path=db_path)
+    assert exc_info.value.code == 1
 
 
 def test_handle_add_fails_on_missing_test_file(tmp_path, db_path):
     d = tmp_path / "incomplete-exercise"
     d.mkdir()
     (d / "problem.md").write_text("# Title\n")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc_info:
         handle_add([str(d)], db_path=db_path)
+    assert exc_info.value.code == 1
 
 
 def test_handle_add_fails_on_duplicate_slug(ex_dir, db_path):
     handle_add([str(ex_dir)], db_path=db_path)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc_info:
         handle_add([str(ex_dir)], db_path=db_path)
+    assert exc_info.value.code == 1
 
 
 def test_handle_add_falls_back_to_dirname_when_no_h1(tmp_path, db_path):
