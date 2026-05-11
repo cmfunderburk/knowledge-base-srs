@@ -105,3 +105,27 @@ def insert_review_log(conn: sqlite3.Connection, review: dict) -> int:
     )
     conn.commit()
     return cur.lastrowid
+
+
+def record_grade(
+    conn: sqlite3.Connection,
+    exercise_id: int,
+    box: int,
+    due: str,
+    now: str,
+    review: dict,
+) -> None:
+    """Update scheduling and insert review log atomically."""
+    unknown = set(review) - set(_REVIEW_LOG_COLS)
+    if unknown:
+        raise ValueError(f"Unknown review_log columns: {unknown}")
+    cols = [c for c in _REVIEW_LOG_COLS if c in review]
+    with conn:
+        conn.execute(
+            "UPDATE code_exercises SET box=?, due=?, last_review=?, reps=reps+1 WHERE exercise_id=?",
+            (box, due, now, exercise_id),
+        )
+        conn.execute(
+            f"INSERT INTO code_review_log ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+            [review[c] for c in cols],
+        )

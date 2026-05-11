@@ -28,6 +28,7 @@ from knowledge_base.code_review.db import (
     get_due_exercises,
     init_db,
     insert_review_log,
+    record_grade,
     update_exercise_scheduling,
 )
 from knowledge_base.code_review.leitner import schedule as leitner_schedule
@@ -132,7 +133,7 @@ class ReviewScreen(Screen):
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
             tmpfile = Path(f.name)
 
-        async with self.app.suspend():
+        with self.app.suspend():
             subprocess.run([editor, str(tmpfile)])
 
         self._user_code = tmpfile.read_text()
@@ -153,6 +154,8 @@ class ReviewScreen(Screen):
         self.query_one("#grade-row").remove_class("hidden")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        for btn in self.query("Button"):
+            btn.disabled = True
         grade = int(event.button.id.split("-")[1])  # "grade-1" → 1
         now = datetime.now(timezone.utc)
         ex = self._exercise
@@ -167,15 +170,21 @@ class ReviewScreen(Screen):
             elapsed_days = 0.0
 
         result = leitner_schedule(ex["box"], grade, now)
-        update_exercise_scheduling(self._conn, ex["exercise_id"], result.box, result.due, now.isoformat())
-        insert_review_log(self._conn, {
-            "exercise_id": ex["exercise_id"],
-            "timestamp": now.isoformat(),
-            "grade": grade,
-            "prior_box": ex["box"],
-            "new_box": result.box,
-            "elapsed_days": elapsed_days,
-        })
+        record_grade(
+            self._conn,
+            exercise_id=ex["exercise_id"],
+            box=result.box,
+            due=result.due,
+            now=now.isoformat(),
+            review={
+                "exercise_id": ex["exercise_id"],
+                "timestamp": now.isoformat(),
+                "grade": grade,
+                "prior_box": ex["box"],
+                "new_box": result.box,
+                "elapsed_days": elapsed_days,
+            },
+        )
         self.app.pop_screen()
 
 
@@ -185,8 +194,11 @@ class ReviewScreen(Screen):
 
 class CodeReviewApp(App):
     def on_mount(self) -> None:
-        conn = init_db(DB_PATH)
-        self.push_screen(ExerciseListScreen(conn))
+        self._conn = init_db(DB_PATH)
+        self.push_screen(ExerciseListScreen(self._conn))
+
+    def on_unmount(self) -> None:
+        self._conn.close()
 
 
 def main() -> None:
