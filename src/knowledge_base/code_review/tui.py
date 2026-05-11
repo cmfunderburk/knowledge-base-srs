@@ -34,7 +34,7 @@ from knowledge_base.code_review.db import (
     reset_exercise,
 )
 from knowledge_base.code_review.leitner import schedule as leitner_schedule
-from knowledge_base.code_review.runner import compute_diff, run_tests
+from knowledge_base.code_review.runner import compute_side_by_side_diff, run_tests
 
 _REPO_ROOT = Path(__file__).parents[3]
 EXERCISES_DIR = _REPO_ROOT / "exercises"
@@ -301,11 +301,14 @@ class ReviewScreen(Screen):
     ]
 
     CSS = """
-    #problem      { margin: 1 2; }
-    #start-prompt { margin: 0 2 1 2; color: $accent; }
-    #results      { margin: 1 2; }
-    #diff         { margin: 1 2; color: $text-muted; }
-    #grade-row    { height: 3; margin: 1 2; }
+    #problem        { margin: 1 2; }
+    #start-prompt   { margin: 0 2 1 2; color: $accent; }
+    #results        { margin: 1 2; }
+    #diff-row       { margin: 1 2; height: auto; }
+    #diff-left-panel  { width: 1fr; padding-right: 1; border-right: tall $panel-darken-1; }
+    #diff-right-panel { width: 1fr; padding-left: 1; }
+    .diff-header    { color: $text-muted; margin-bottom: 1; }
+    #grade-row      { height: 3; margin: 1 2; }
     #grade-row Button { margin: 0 1; }
     .hidden { display: none; }
     """
@@ -339,7 +342,20 @@ class ReviewScreen(Screen):
             Static(id="problem"),
             Static("Press Enter to open editor.", id="start-prompt"),
             Static(id="results", classes="hidden"),
-            Static(id="diff",    classes="hidden"),
+            Horizontal(
+                Vertical(
+                    Static("Your solution", classes="diff-header"),
+                    Static(id="diff-left"),
+                    id="diff-left-panel",
+                ),
+                Vertical(
+                    Static("Reference solution", classes="diff-header"),
+                    Static(id="diff-right"),
+                    id="diff-right-panel",
+                ),
+                id="diff-row",
+                classes="hidden",
+            ),
             grade_row,
         )
         yield Footer()
@@ -382,15 +398,17 @@ class ReviewScreen(Screen):
 
         exercise_dir = EXERCISES_DIR / self._exercise["slug"]
         passed, output = run_tests(exercise_dir, self._user_code)
-        diff = compute_diff(self._user_code, exercise_dir / "solution.py")
+        diff = compute_side_by_side_diff(self._user_code, exercise_dir / "solution.py")
 
         status = "[green]✓ PASSED[/green]" if passed else "[red]✗ FAILED[/red]"
         self.query_one("#results", Static).update(f"{status}\n\n{output}")
         self.query_one("#results").remove_class("hidden")
 
         if diff:
-            self.query_one("#diff", Static).update(f"[bold]Diff vs. reference:[/bold]\n{diff}")
-            self.query_one("#diff").remove_class("hidden")
+            left_text, right_text = diff
+            self.query_one("#diff-left", Static).update(left_text)
+            self.query_one("#diff-right", Static).update(right_text)
+            self.query_one("#diff-row").remove_class("hidden")
 
         self.query_one("#grade-row").remove_class("hidden")
 

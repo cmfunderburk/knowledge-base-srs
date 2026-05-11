@@ -49,6 +49,59 @@ def run_tests(exercise_dir: Path, user_code: str) -> tuple[bool, str]:
             submission.unlink()
 
 
+def compute_side_by_side_diff(
+    user_code: str, solution_path: Path
+) -> tuple[str, str] | None:
+    """Return (left_markup, right_markup) for side-by-side diff display.
+
+    Left = your solution (deletions in red), right = reference (insertions in green).
+    Returns None if solution.py does not exist or files are identical.
+    Uses Rich markup — escape [ ] in content before wrapping in color tags.
+    """
+    if not solution_path.exists():
+        return None
+    reference = solution_path.read_text()
+    if user_code == reference:
+        return None
+
+    def esc(s: str) -> str:
+        return s.replace("[", r"\[")
+
+    left_lines = user_code.splitlines()
+    right_lines = reference.splitlines()
+    matcher = difflib.SequenceMatcher(None, left_lines, right_lines, autojunk=False)
+
+    left_out: list[str] = []
+    right_out: list[str] = []
+    has_diff = False
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for line in left_lines[i1:i2]:
+                left_out.append(esc(line))
+                right_out.append(esc(line))
+        elif tag == "replace":
+            has_diff = True
+            lb, rb = left_lines[i1:i2], right_lines[j1:j2]
+            for k in range(max(len(lb), len(rb))):
+                left_out.append(f"[red]{esc(lb[k])}[/red]" if k < len(lb) else "")
+                right_out.append(f"[green]{esc(rb[k])}[/green]" if k < len(rb) else "")
+        elif tag == "delete":
+            has_diff = True
+            for line in left_lines[i1:i2]:
+                left_out.append(f"[red]{esc(line)}[/red]")
+                right_out.append("")
+        elif tag == "insert":
+            has_diff = True
+            for line in right_lines[j1:j2]:
+                left_out.append("")
+                right_out.append(f"[green]{esc(line)}[/green]")
+
+    if not has_diff:
+        return None
+    return "\n".join(left_out), "\n".join(right_out)
+
+
 def compute_diff(user_code: str, solution_path: Path) -> str:
     """Return a unified diff between user_code and the reference solution.
 
