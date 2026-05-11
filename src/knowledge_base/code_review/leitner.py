@@ -17,6 +17,11 @@ def schedule(current_box: int, grade: int, now: datetime) -> LeitnerResult:
 
     grade: 1=Again (box 1), 2=Hard (stay), 3=Good (next), 4=Easy (+2 boxes)
     """
+    if current_box not in INTERVALS:
+        raise ValueError(f"current_box must be 1-5, got {current_box}")
+    if grade not in (1, 2, 3, 4):
+        raise ValueError(f"grade must be 1-4, got {grade}")
+
     if grade == 1:
         new_box = 1
     elif grade == 2:

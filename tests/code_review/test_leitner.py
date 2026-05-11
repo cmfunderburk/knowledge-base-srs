@@ -52,3 +52,4 @@ def test_naive_datetime_is_treated_as_utc():
     naive = datetime(2026, 1, 1)
     result = schedule(current_box=1, grade=3, now=naive)
     assert result.box == 2
+    assert result.due.endswith("+00:00")
