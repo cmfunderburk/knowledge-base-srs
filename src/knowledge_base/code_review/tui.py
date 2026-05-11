@@ -87,10 +87,14 @@ class ExerciseListScreen(Screen):
 # ---------------------------------------------------------------------------
 
 class ReviewScreen(Screen):
-    BINDINGS = [Binding("escape", "app.pop_screen", "Back")]
+    BINDINGS = [
+        Binding("escape", "app.pop_screen", "Back"),
+        Binding("enter", "start_editing", "Open Editor"),
+    ]
 
     CSS = """
     #problem { margin: 1 2; }
+    #start-prompt { margin: 0 2 1 2; color: $accent; }
     #results { margin: 1 2; }
     #diff    { margin: 1 2; color: $text-muted; }
     #grade-row { height: 3; margin: 1 2; }
@@ -108,6 +112,7 @@ class ReviewScreen(Screen):
         yield Header()
         yield Vertical(
             Static(id="problem"),
+            Static("Press Enter to open editor.", id="start-prompt"),
             Static(id="results", classes="hidden"),
             Static(id="diff", classes="hidden"),
             Horizontal(
@@ -126,7 +131,10 @@ class ReviewScreen(Screen):
         problem_md = exercise_dir / "problem.md"
         text = problem_md.read_text() if problem_md.exists() else f"[red]Missing: {problem_md}[/red]"
         self.query_one("#problem", Static).update(text)
-        self.set_timer(0.1, self._open_editor)
+
+    def action_start_editing(self) -> None:
+        self.query_one("#start-prompt").add_class("hidden")
+        self.set_timer(0.05, self._open_editor)
 
     async def _open_editor(self) -> None:
         editor = os.environ.get("EDITOR", "vi")

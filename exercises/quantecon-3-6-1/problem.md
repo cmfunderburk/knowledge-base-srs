@@ -15,3 +15,4 @@ Return the simulated series as a NumPy array of length T + 1.
 Restrict your imports to:
 
     import numpy as np
+    import matplotlib.pyplot as plt
