@@ -30,13 +30,13 @@ def test_init_db_creates_tables(conn):
 
 
 def test_add_exercise_returns_id(conn):
-    eid = add_exercise(conn, "my-slug", "My Title", "quantecon")
+    eid = add_exercise(conn, "my-slug", "My Title", path="my-slug", source="quantecon")
     assert isinstance(eid, int)
     assert eid > 0
 
 
 def test_get_exercise_by_slug(conn):
-    add_exercise(conn, "slug-a", "Title A")
+    add_exercise(conn, "slug-a", "Title A", path="slug-a")
     ex = get_exercise_by_slug(conn, "slug-a")
     assert ex is not None
     assert ex["title"] == "Title A"
@@ -49,14 +49,14 @@ def test_get_exercise_by_slug_missing_returns_none(conn):
 
 
 def test_get_due_exercises_includes_null_due(conn):
-    add_exercise(conn, "new-exercise", "New")
+    add_exercise(conn, "new-exercise", "New", path="new-exercise")
     now = datetime.now(timezone.utc).isoformat()
     due = get_due_exercises(conn, now)
     assert any(e["slug"] == "new-exercise" for e in due)
 
 
 def test_get_due_exercises_excludes_future(conn):
-    eid = add_exercise(conn, "future-ex", "Future")
+    eid = add_exercise(conn, "future-ex", "Future", path="future-ex")
     update_exercise_scheduling(conn, eid, box=3, due="2099-01-01T00:00:00+00:00", now="2026-01-01T00:00:00+00:00")
     as_of = "2026-06-01T00:00:00+00:00"
     due = get_due_exercises(conn, as_of)
@@ -64,7 +64,7 @@ def test_get_due_exercises_excludes_future(conn):
 
 
 def test_update_exercise_scheduling_increments_reps(conn):
-    eid = add_exercise(conn, "rep-test", "Rep Test")
+    eid = add_exercise(conn, "rep-test", "Rep Test", path="rep-test")
     update_exercise_scheduling(conn, eid, box=2, due="2026-01-03T00:00:00+00:00", now="2026-01-01T00:00:00+00:00")
     ex = get_exercise_by_slug(conn, "rep-test")
     assert ex["reps"] == 1
@@ -72,7 +72,7 @@ def test_update_exercise_scheduling_increments_reps(conn):
 
 
 def test_insert_review_log(conn):
-    eid = add_exercise(conn, "log-test", "Log Test")
+    eid = add_exercise(conn, "log-test", "Log Test", path="log-test")
     review_id = insert_review_log(conn, {
         "exercise_id": eid,
         "timestamp": "2026-01-01T00:00:00+00:00",
@@ -94,6 +94,19 @@ def test_foreign_key_constraint_enforced(conn):
             "new_box": 2,
             "elapsed_days": 0.0,
         })
+
+
+def test_add_exercise_persists_path(conn):
+    eid = add_exercise(
+        conn,
+        slug="quantecon-3-1",
+        title="Title",
+        path="quantecon/python-programming/quantecon-3-1",
+        source="quantecon-python",
+    )
+    ex = get_exercise_by_slug(conn, "quantecon-3-1")
+    assert ex["path"] == "quantecon/python-programming/quantecon-3-1"
+    assert ex["source"] == "quantecon-python"
 
 
 def test_init_db_adds_path_column_to_legacy_schema(tmp_path):

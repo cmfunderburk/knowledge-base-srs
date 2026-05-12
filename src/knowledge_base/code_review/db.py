@@ -70,12 +70,16 @@ def init_db(db_path: str | Path = DB_PATH) -> sqlite3.Connection:
 
 
 def add_exercise(
-    conn: sqlite3.Connection, slug: str, title: str, source: str = ""
+    conn: sqlite3.Connection,
+    slug: str,
+    title: str,
+    path: str,
+    source: str = "",
 ) -> int:
     now = datetime.now(timezone.utc).isoformat()
     cur = conn.execute(
-        "INSERT INTO code_exercises (slug, title, source, added) VALUES (?, ?, ?, ?)",
-        (slug, title, source, now),
+        "INSERT INTO code_exercises (slug, title, path, source, added) VALUES (?, ?, ?, ?, ?)",
+        (slug, title, path, source, now),
     )
     conn.commit()
     return cur.lastrowid
