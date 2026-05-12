@@ -261,6 +261,7 @@ class StatsScreen(Screen):
     #stats-header { margin: 1 2; }
     #confirm-bar  { margin: 0 2 1 2; color: $warning; }
     .hidden { display: none; }
+    .category-header { color: $text-muted; padding: 0 1; }
     """
 
     def __init__(self, conn, **kwargs):
@@ -282,16 +283,21 @@ class StatsScreen(Screen):
         exercises = get_all_exercises(self._conn)
         lv = self.query_one("#stats-list", ListView)
         lv.clear()
-        for ex in exercises:
-            due  = ex["due"][:10]         if ex["due"]         else "—"
-            last = ex["last_review"][:10] if ex["last_review"] else "never"
-            label = (
-                f"box {ex['box']}  reps {ex['reps']:>3}  "
-                f"last {last}  next {due}    {ex['slug']}"
-            )
-            item = ListItem(Label(label))
-            item._exercise = ex  # type: ignore[attr-defined]
-            lv.append(item)
+        for cat, group in group_by_category(exercises):
+            header_label = cat if cat else "(root)"
+            header = ListItem(Label(f"── {header_label} ──", classes="category-header"))
+            header.disabled = True
+            lv.append(header)
+            for ex in group:
+                due  = ex["due"][:10]         if ex["due"]         else "—"
+                last = ex["last_review"][:10] if ex["last_review"] else "never"
+                label = (
+                    f"box {ex['box']}  reps {ex['reps']:>3}  "
+                    f"last {last}  next {due}    {ex['slug']}"
+                )
+                item = ListItem(Label(label))
+                item._exercise = ex  # type: ignore[attr-defined]
+                lv.append(item)
         n = len(exercises)
         self.query_one("#stats-header", Static).update(
             f"{n} exercise(s)   r = reset selected   R = reset all"
