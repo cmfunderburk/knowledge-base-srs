@@ -3,7 +3,13 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from knowledge_base.code_review.db import DB_PATH, add_exercise, get_exercise_by_slug, init_db
+from knowledge_base.code_review.db import (
+    DB_PATH,
+    EXERCISES_DIR,
+    add_exercise,
+    get_exercise_by_slug,
+    init_db,
+)
 
 
 def _extract_title(problem_md: Path) -> str:
@@ -25,6 +31,15 @@ def handle_add(args: list[str], db_path: Path | None = None) -> None:
         print(f"error: not a directory: {exercise_dir}", file=sys.stderr)
         sys.exit(1)
 
+    try:
+        rel_path = exercise_dir.relative_to(EXERCISES_DIR.resolve())
+    except ValueError:
+        print(
+            f"error: {exercise_dir} is not inside the exercises root ({EXERCISES_DIR})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     problem_md = exercise_dir / "problem.md"
     test_file = exercise_dir / "test_solution.py"
     if not problem_md.exists():
@@ -43,7 +58,7 @@ def handle_add(args: list[str], db_path: Path | None = None) -> None:
         sys.exit(1)
 
     try:
-        exercise_id = add_exercise(conn, slug, title, parsed.source)
+        exercise_id = add_exercise(conn, slug, title, str(rel_path), parsed.source)
     except sqlite3.IntegrityError:
         print(f"error: exercise '{slug}' is already registered", file=sys.stderr)
         sys.exit(1)
