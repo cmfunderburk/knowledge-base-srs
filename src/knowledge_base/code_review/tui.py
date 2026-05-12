@@ -26,6 +26,7 @@ from textual.widgets import Button, Footer, Header, Label, ListItem, ListView, S
 from knowledge_base.code_review.cli import handle_add
 from knowledge_base.code_review.db import (
     DB_PATH,
+    EXERCISES_DIR,
     get_all_exercises,
     get_due_exercises,
     init_db,
@@ -35,9 +36,6 @@ from knowledge_base.code_review.db import (
 )
 from knowledge_base.code_review.leitner import schedule as leitner_schedule
 from knowledge_base.code_review.runner import compute_side_by_side_diff, run_tests
-
-_REPO_ROOT = Path(__file__).parents[3]
-EXERCISES_DIR = _REPO_ROOT / "exercises"
 
 
 # ---------------------------------------------------------------------------

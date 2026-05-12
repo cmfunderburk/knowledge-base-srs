@@ -4,6 +4,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parents[3]
 DB_PATH = _REPO_ROOT / "data" / "code_exercises.db"
+EXERCISES_DIR = _REPO_ROOT / "exercises"
 
 _DDL_EXERCISES = """
 CREATE TABLE IF NOT EXISTS code_exercises (
