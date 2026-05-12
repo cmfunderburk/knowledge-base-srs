@@ -22,6 +22,7 @@ code-review = "knowledge_base.code_review.tui:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+norecursedirs = ["tests/code_review/fixtures"]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
