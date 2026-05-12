@@ -153,3 +153,53 @@ def test_init_db_fresh_has_path_column(tmp_path):
     cols = {row[1] for row in conn.execute("PRAGMA table_info(code_exercises)").fetchall()}
     assert "path" in cols
     assert db_mod.LAST_MIGRATION_PURGE == []
+
+
+def test_init_db_cascades_purge_to_review_log(tmp_path):
+    """Pre-migration exercise with review_log rows must be purged together (no FK violation)."""
+    import sqlite3
+    from knowledge_base.code_review import db as db_mod
+
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA foreign_keys=ON;")
+    conn.executescript(
+        """
+        CREATE TABLE code_exercises (
+            exercise_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug         TEXT    NOT NULL UNIQUE,
+            title        TEXT    NOT NULL,
+            source       TEXT    NOT NULL DEFAULT '',
+            box          INTEGER NOT NULL DEFAULT 1,
+            last_review  TEXT,
+            due          TEXT,
+            reps         INTEGER NOT NULL DEFAULT 0,
+            added        TEXT    NOT NULL
+        );
+        CREATE TABLE code_review_log (
+            review_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            exercise_id  INTEGER NOT NULL REFERENCES code_exercises(exercise_id),
+            timestamp    TEXT    NOT NULL,
+            grade        INTEGER NOT NULL,
+            prior_box    INTEGER NOT NULL,
+            new_box      INTEGER NOT NULL,
+            elapsed_days REAL    NOT NULL
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO code_exercises (slug, title, added) VALUES (?, ?, ?)",
+        ("legacy-slug", "Legacy", "2026-01-01T00:00:00+00:00"),
+    )
+    conn.execute(
+        "INSERT INTO code_review_log "
+        "(exercise_id, timestamp, grade, prior_box, new_box, elapsed_days) "
+        "VALUES (1, '2026-01-02T00:00:00+00:00', 3, 1, 2, 1.0)"
+    )
+    conn.commit()
+    conn.close()
+
+    migrated = db_mod.init_db(db_path)
+    assert migrated.execute("SELECT COUNT(*) FROM code_exercises").fetchone()[0] == 0
+    assert migrated.execute("SELECT COUNT(*) FROM code_review_log").fetchone()[0] == 0
+    assert db_mod.LAST_MIGRATION_PURGE == ["legacy-slug"]

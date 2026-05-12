@@ -64,6 +64,10 @@ def init_db(db_path: str | Path = DB_PATH) -> sqlite3.Connection:
             ).fetchall()
         ]
         if purged:
+            conn.execute(
+                "DELETE FROM code_review_log WHERE exercise_id IN "
+                "(SELECT exercise_id FROM code_exercises WHERE path = '')"
+            )
             conn.execute("DELETE FROM code_exercises WHERE path = ''")
             LAST_MIGRATION_PURGE = purged
     return conn
