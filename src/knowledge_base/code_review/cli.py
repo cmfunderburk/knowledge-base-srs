@@ -3,6 +3,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from knowledge_base.code_review import db as _db_mod
 from knowledge_base.code_review.db import (
     DB_PATH,
     EXERCISES_DIR,
@@ -52,6 +53,12 @@ def handle_add(args: list[str], db_path: Path | None = None) -> None:
     slug = exercise_dir.name
     title = _extract_title(problem_md)
     conn = init_db(db_path or DB_PATH)
+    if _db_mod.LAST_MIGRATION_PURGE:
+        purged = ", ".join(_db_mod.LAST_MIGRATION_PURGE)
+        print(
+            f"notice: migrated DB and purged pre-migration rows: {purged}",
+            file=sys.stderr,
+        )
 
     if get_exercise_by_slug(conn, slug):
         print(f"error: exercise '{slug}' is already registered", file=sys.stderr)

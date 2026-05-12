@@ -23,6 +23,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label, ListItem, ListView, Static
 
+from knowledge_base.code_review import db as _db_mod
 from knowledge_base.code_review.cli import handle_add
 from knowledge_base.code_review.db import (
     DB_PATH,
@@ -458,6 +459,13 @@ class ReviewScreen(Screen):
 class CodeReviewApp(App):
     def on_mount(self) -> None:
         self._conn = init_db(DB_PATH)
+        if _db_mod.LAST_MIGRATION_PURGE:
+            purged = ", ".join(_db_mod.LAST_MIGRATION_PURGE)
+            self.notify(
+                f"Migrated DB — purged pre-migration rows: {purged}",
+                severity="warning",
+                timeout=10,
+            )
         self.push_screen(ExerciseListScreen(self._conn))
 
     def on_unmount(self) -> None:
