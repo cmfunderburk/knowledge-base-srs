@@ -40,6 +40,33 @@ from knowledge_base.code_review.runner import compute_side_by_side_diff, run_tes
 
 
 # ---------------------------------------------------------------------------
+# Category and grouping helpers
+# ---------------------------------------------------------------------------
+
+
+def category_of(exercise: dict) -> str:
+    """Return the category for an exercise — its path with the leaf slug stripped.
+
+    Root-level exercises return "".
+    """
+    path = exercise.get("path") or ""
+    parts = path.split("/")
+    return "/".join(parts[:-1]) if len(parts) > 1 else ""
+
+
+def group_by_category(exercises: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Group exercises by category; root category ("") first, then alphabetical.
+
+    Within each group, exercises are sorted by slug.
+    """
+    by_cat: dict[str, list[dict]] = {}
+    for ex in exercises:
+        by_cat.setdefault(category_of(ex), []).append(ex)
+    ordered = sorted(by_cat.keys(), key=lambda c: (c != "", c))
+    return [(cat, sorted(by_cat[cat], key=lambda e: e["slug"])) for cat in ordered]
+
+
+# ---------------------------------------------------------------------------
 # SRS queue screen
 # ---------------------------------------------------------------------------
 
