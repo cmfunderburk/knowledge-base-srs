@@ -359,7 +359,7 @@ class ReviewScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        exercise_dir = EXERCISES_DIR / self._exercise["slug"]
+        exercise_dir = EXERCISES_DIR / self._exercise["path"]
         problem_md = exercise_dir / "problem.md"
         text = (
             problem_md.read_text(encoding="utf-8")
@@ -394,7 +394,7 @@ class ReviewScreen(Screen):
         self._user_code = tmpfile.read_text()
         tmpfile.unlink(missing_ok=True)
 
-        exercise_dir = EXERCISES_DIR / self._exercise["slug"]
+        exercise_dir = EXERCISES_DIR / self._exercise["path"]
         passed, output = run_tests(exercise_dir, self._user_code)
         diff = compute_side_by_side_diff(self._user_code, exercise_dir / "solution.py")
 
