@@ -134,6 +134,7 @@ class MassedBrowseScreen(Screen):
     CSS = """
     #browse-header { margin: 1 2; }
     #browse-notice { margin: 0 2 1 2; color: $warning; }
+    .category-header { color: $text-muted; padding: 0 1; }
     """
 
     def __init__(self, conn, **kwargs):
@@ -160,25 +161,34 @@ class MassedBrowseScreen(Screen):
 
     def _render_list(self, preserve_id: int | None = None) -> None:
         lv = self.query_one("#browse-list", ListView)
-        # Remember which exercise is highlighted before clearing
         if preserve_id is None and lv.highlighted_child is not None:
             if hasattr(lv.highlighted_child, "_exercise"):
                 preserve_id = lv.highlighted_child._exercise["exercise_id"]
         lv.clear()
         ids = self._selected_ids()
-        for ex in self._exercises:
-            marker = "[✓]" if ex["exercise_id"] in ids else "[ ]"
-            due_str = ex["due"][:10] if ex["due"] else "new"
-            label = f"{marker} [{due_str}]  {ex['slug']}  —  {ex['title']}  (box {ex['box']}, reps {ex['reps']})"
-            item = ListItem(Label(label))
-            item._exercise = ex  # type: ignore[attr-defined]
-            lv.append(item)
-        # Restore highlight
-        if preserve_id is not None:
-            for i, ex in enumerate(self._exercises):
-                if ex["exercise_id"] == preserve_id:
-                    lv.index = i
-                    break
+        target_index: int | None = None
+        flat_index = 0
+        for cat, group in group_by_category(self._exercises):
+            header_label = cat if cat else "(root)"
+            header = ListItem(Label(f"── {header_label} ──", classes="category-header"))
+            header.disabled = True
+            lv.append(header)
+            flat_index += 1
+            for ex in group:
+                marker = "[✓]" if ex["exercise_id"] in ids else "[ ]"
+                due_str = ex["due"][:10] if ex["due"] else "new"
+                label = (
+                    f"{marker} [{due_str}]  {ex['slug']}  —  {ex['title']}  "
+                    f"(box {ex['box']}, reps {ex['reps']})"
+                )
+                item = ListItem(Label(label))
+                item._exercise = ex  # type: ignore[attr-defined]
+                lv.append(item)
+                if preserve_id is not None and ex["exercise_id"] == preserve_id:
+                    target_index = flat_index
+                flat_index += 1
+        if target_index is not None:
+            lv.index = target_index
 
     def _update_header(self) -> None:
         n = len(self._selected)
