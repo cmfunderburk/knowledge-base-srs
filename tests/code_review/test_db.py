@@ -94,3 +94,49 @@ def test_foreign_key_constraint_enforced(conn):
             "new_box": 2,
             "elapsed_days": 0.0,
         })
+
+
+def test_init_db_adds_path_column_to_legacy_schema(tmp_path):
+    """Pre-migration DB has no `path` column; init_db must add it and purge rows lacking a path."""
+    import sqlite3
+    from knowledge_base.code_review import db as db_mod
+
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE code_exercises (
+            exercise_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug         TEXT    NOT NULL UNIQUE,
+            title        TEXT    NOT NULL,
+            source       TEXT    NOT NULL DEFAULT '',
+            box          INTEGER NOT NULL DEFAULT 1,
+            last_review  TEXT,
+            due          TEXT,
+            reps         INTEGER NOT NULL DEFAULT 0,
+            added        TEXT    NOT NULL
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO code_exercises (slug, title, added) VALUES (?, ?, ?)",
+        ("legacy-slug", "Legacy", "2026-01-01T00:00:00+00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    migrated = db_mod.init_db(db_path)
+    cols = {row[1] for row in migrated.execute("PRAGMA table_info(code_exercises)").fetchall()}
+    assert "path" in cols
+    rows = migrated.execute("SELECT slug FROM code_exercises").fetchall()
+    assert rows == []  # legacy row purged because path was unknown
+    assert db_mod.LAST_MIGRATION_PURGE == ["legacy-slug"]
+
+
+def test_init_db_fresh_has_path_column(tmp_path):
+    from knowledge_base.code_review import db as db_mod
+
+    conn = db_mod.init_db(tmp_path / "fresh.db")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(code_exercises)").fetchall()}
+    assert "path" in cols
+    assert db_mod.LAST_MIGRATION_PURGE == []

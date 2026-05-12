@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS code_exercises (
     exercise_id  INTEGER PRIMARY KEY AUTOINCREMENT,
     slug         TEXT    NOT NULL UNIQUE,
     title        TEXT    NOT NULL,
+    path         TEXT    NOT NULL DEFAULT '',
     source       TEXT    NOT NULL DEFAULT '',
     box          INTEGER NOT NULL DEFAULT 1,
     last_review  TEXT,
@@ -37,8 +38,12 @@ CREATE INDEX IF NOT EXISTS idx_code_exercises_due  ON code_exercises (due);
 CREATE INDEX IF NOT EXISTS idx_code_review_log_eid ON code_review_log (exercise_id);
 """
 
+LAST_MIGRATION_PURGE: list[str] = []
+
 
 def init_db(db_path: str | Path = DB_PATH) -> sqlite3.Connection:
+    global LAST_MIGRATION_PURGE
+    LAST_MIGRATION_PURGE = []
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -50,6 +55,17 @@ def init_db(db_path: str | Path = DB_PATH) -> sqlite3.Connection:
             stmt = stmt.strip()
             if stmt:
                 conn.execute(stmt)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(code_exercises)").fetchall()}
+        if "path" not in cols:
+            conn.execute("ALTER TABLE code_exercises ADD COLUMN path TEXT NOT NULL DEFAULT ''")
+        purged = [
+            row[0] for row in conn.execute(
+                "SELECT slug FROM code_exercises WHERE path = ''"
+            ).fetchall()
+        ]
+        if purged:
+            conn.execute("DELETE FROM code_exercises WHERE path = ''")
+            LAST_MIGRATION_PURGE = purged
     return conn
 
 
