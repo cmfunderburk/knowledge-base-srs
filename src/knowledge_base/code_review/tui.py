@@ -99,7 +99,12 @@ class ExerciseListScreen(Screen):
         else:
             for ex in exercises:
                 due_str = ex["due"][:10] if ex["due"] else "new"
-                label = f"[{due_str}]  {ex['slug']}  —  {ex['title']}  (box {ex['box']}, reps {ex['reps']})"
+                cat = category_of(ex)
+                prefix = f"{cat} · " if cat else ""
+                label = (
+                    f"[{due_str}]  {prefix}{ex['slug']}  —  {ex['title']}  "
+                    f"(box {ex['box']}, reps {ex['reps']})"
+                )
                 item = ListItem(Label(label))
                 item._exercise = ex  # type: ignore[attr-defined]
                 lv.append(item)
