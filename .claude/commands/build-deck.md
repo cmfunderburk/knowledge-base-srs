@@ -40,7 +40,8 @@ Present the full card set to the user organized by section, with cloze content s
 
 ### LaTeX formatting
 - Use `\(...\)` delimiters (MathJax inline math)
-- Use `\text{...}` inside LaTeX for words (e.g., `\text{inflation premium}`)
+- **Never use `\text{...}` inside a cloze** — the closing `}` collides with the cloze `}}`, breaking Anki's parser. Use escaped spaces instead: `inflation\ premium` not `\text{inflation premium}`.
+- `\text{...}` is fine in LaTeX that is NOT inside a cloze deletion.
 - Anki renders via MathJax — standard LaTeX math commands work
 
 ### Compression principles
