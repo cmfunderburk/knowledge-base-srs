@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import tempfile
 from collections import deque
 from datetime import datetime, timezone
@@ -19,12 +18,11 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label, ListItem, ListView, Static
 
 from knowledge_base.code_review import db as _db_mod
-from knowledge_base.code_review.cli import handle_add
 from knowledge_base.code_review.db import (
     DB_PATH,
     EXERCISES_DIR,
@@ -34,6 +32,7 @@ from knowledge_base.code_review.db import (
     record_grade,
     reset_all_exercises,
     reset_exercise,
+    sync_exercises_from_disk,
 )
 from knowledge_base.code_review.leitner import schedule as leitner_schedule
 from knowledge_base.code_review.runner import compute_side_by_side_diff, run_tests
@@ -244,11 +243,9 @@ class MassedBrowseScreen(Screen):
     def _on_review_done(self, action: str | None) -> None:
         if action is None:
             return  # user escaped — end session
-        if action == "again":
-            self._do_next()  # redo same exercise (stays at front)
-        else:
+        if action != "again":
             self._queue.rotate(-1)  # move current to back, advance
-            self._do_next()
+        self._do_next()
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +345,7 @@ class ReviewScreen(Screen):
     ]
 
     CSS = """
+    #review-body    { height: 1fr; }
     #problem        { margin: 1 2; }
     #start-prompt   { margin: 0 2 1 2; color: $accent; }
     #results        { margin: 1 2; }
@@ -366,6 +364,7 @@ class ReviewScreen(Screen):
         self._conn = conn
         self._massed = massed
         self._user_code = ""
+        self._editor_done = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -385,7 +384,7 @@ class ReviewScreen(Screen):
                 id="grade-row",
                 classes="hidden",
             )
-        yield Vertical(
+        yield VerticalScroll(
             Static(id="problem"),
             Static("Press Enter to open editor.", id="start-prompt"),
             Static(id="results", classes="hidden"),
@@ -403,8 +402,9 @@ class ReviewScreen(Screen):
                 id="diff-row",
                 classes="hidden",
             ),
-            grade_row,
+            id="review-body",
         )
+        yield grade_row
         yield Footer()
 
     def on_mount(self) -> None:
@@ -418,7 +418,11 @@ class ReviewScreen(Screen):
         self.query_one("#problem", Static).update(text)
 
     def on_key(self, event) -> None:
-        if event.key == "enter":
+        # Only open the editor on the first Enter. After grading the user is on
+        # the diff/results screen with the grade-row visible; if focus isn't on
+        # one of those buttons, Enter would otherwise re-trigger the editor for
+        # the same exercise instead of letting the user grade.
+        if event.key == "enter" and not self._editor_done:
             event.stop()
             self.action_start_editing()
 
@@ -441,6 +445,7 @@ class ReviewScreen(Screen):
             subprocess.run([editor, str(tmpfile)])
 
         self._user_code = tmpfile.read_text()
+        self._editor_done = True
         tmpfile.unlink(missing_ok=True)
 
         exercise_dir = EXERCISES_DIR / self._exercise["path"]
@@ -514,6 +519,15 @@ class CodeReviewApp(App):
                 severity="warning",
                 timeout=10,
             )
+        added = sync_exercises_from_disk(self._conn, EXERCISES_DIR)
+        if added:
+            preview = ", ".join(added[:5])
+            if len(added) > 5:
+                preview += f", … (+{len(added) - 5} more)"
+            self.notify(
+                f"Auto-registered {len(added)} new exercise(s): {preview}",
+                timeout=8,
+            )
         self.push_screen(ExerciseListScreen(self._conn))
 
     def on_unmount(self) -> None:
@@ -521,10 +535,7 @@ class CodeReviewApp(App):
 
 
 def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] == "add":
-        handle_add(sys.argv[2:])
-    else:
-        CodeReviewApp().run()
+    CodeReviewApp().run()
 
 
 if __name__ == "__main__":

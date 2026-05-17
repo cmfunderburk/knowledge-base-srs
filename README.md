@@ -73,21 +73,20 @@ Cards imported persistently also participate in a long-term review lifecycle:
 
 ## Code Review
 
-Register an exercise directory, then use the TUI to drill it on a Leitner schedule:
+Drop an exercise directory under `exercises/` and launch the TUI — it auto-discovers any directory containing the full trio of files and registers it on startup:
 
 ```bash
-uv run code-review add exercises/my-problem/   # register once
 uv run code-review                             # launch exercise list TUI
 ```
 
-**Exercise directory layout:**
+**Exercise directory layout (all three files required for discovery):**
 
 ```
 exercises/
     my-problem/
         problem.md          # shown to user; first H1 becomes the title
         test_solution.py    # pytest tests — import from `submission`, not `solution`
-        solution.py         # optional reference; shown as diff after grading
+        solution.py         # reference; shown as diff after grading
 ```
 
 **TUI flow:** select an exercise → read the problem → `$EDITOR` opens a temp file → write your solution → tests run automatically → see pass/fail + diff vs. reference → press Again / Hard / Good / Easy to schedule the next repetition.
@@ -110,7 +109,7 @@ markdown files ──→ gen-import-md ──→ data/srs.db ──→ review-ge
 CSV files ──→ gen-import-csv ────┘                       │
 cfa_level1_los.json ──→ gen-import ─┘              catalog TUI (browse/select)
 
-exercises/<slug>/ ──→ code-review add ──→ data/code_exercises.db ──→ code-review TUI
+exercises/<slug>/ ──auto-discover──→ data/code_exercises.db ──→ code-review TUI
 ```
 
 ### Source Files (`src/knowledge_base/srs/`)

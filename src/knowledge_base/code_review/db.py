@@ -152,6 +152,65 @@ def reset_all_exercises(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _extract_title(problem_md: Path) -> str:
+    for line in problem_md.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+    return problem_md.parent.name
+
+
+def discover_exercises(exercises_dir: str | Path) -> list[tuple[str, str, str]]:
+    """Walk `exercises_dir` and yield (slug, title, rel_path) for every directory
+    containing problem.md, test_solution.py, and solution.py.
+
+    Returns results sorted by rel_path for deterministic ordering.
+    """
+    root = Path(exercises_dir).resolve()
+    if not root.is_dir():
+        return []
+    found: list[tuple[str, str, str]] = []
+    for problem_md in root.rglob("problem.md"):
+        d = problem_md.parent
+        if not (d / "test_solution.py").exists():
+            continue
+        if not (d / "solution.py").exists():
+            continue
+        found.append((d.name, _extract_title(problem_md), str(d.relative_to(root))))
+    found.sort(key=lambda t: t[2])
+    return found
+
+
+def sync_exercises_from_disk(
+    conn: sqlite3.Connection, exercises_dir: str | Path
+) -> list[str]:
+    """Register any on-disk exercises not yet in the DB. Returns slugs added.
+
+    Existing rows (and their scheduling state) are left untouched. Slug collisions
+    across directories — first-seen wins, later duplicates are silently skipped.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    existing = {
+        row[0] for row in conn.execute("SELECT slug FROM code_exercises").fetchall()
+    }
+    added: list[str] = []
+    with conn:
+        for slug, title, rel_path in discover_exercises(exercises_dir):
+            if slug in existing:
+                continue
+            try:
+                conn.execute(
+                    "INSERT INTO code_exercises (slug, title, path, source, added) "
+                    "VALUES (?, ?, ?, '', ?)",
+                    (slug, title, rel_path, now),
+                )
+                added.append(slug)
+                existing.add(slug)
+            except sqlite3.IntegrityError:
+                pass
+    return added
+
+
 def record_grade(
     conn: sqlite3.Connection,
     exercise_id: int,

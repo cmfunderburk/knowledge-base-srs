@@ -43,9 +43,7 @@ uv run review-gen --paste --save-as N --deck D --topic T --source S  # persist p
 uv run pytest                        # ~390 tests
 
 # Code Review
-uv run code-review                      # launch exercise list TUI
-uv run code-review add <dir>            # register an exercise directory
-uv run code-review add <dir> --source S # register with source label
+uv run code-review                      # launch exercise list TUI (auto-discovers exercises/)
 ```
 
 ## Architecture
@@ -55,7 +53,7 @@ markdown files ──→ gen-import-md ──→ data/srs.db ──→ review-ge
 CSV files ──→ gen-import-csv ────┘                       │
 cfa_level1_los.json ──→ gen-import ─┘              catalog TUI (browse/select)
 
-exercises/<slug>/ ──→ code-review add ──→ data/code_exercises.db ──→ code-review TUI
+exercises/<slug>/ ──auto-discover──→ data/code_exercises.db ──→ code-review TUI
 ```
 
 ### Source files (`srs/`)
@@ -73,8 +71,7 @@ exercises/<slug>/ ──→ code-review add ──→ data/code_exercises.db ─
 - `leitner.py` — 5-box Leitner scheduler; `schedule(current_box, grade, now) → LeitnerResult`; grade 1=Again/2=Hard/3=Good/4=Easy; intervals 1/2/4/8/16 days
 - `db.py` — `code_exercises` and `code_review_log` SQLite tables; CRUD; `record_grade()` for atomic scheduling+log write; default DB at `data/code_exercises.db`
 - `runner.py` — writes user code as `submission.py`, runs pytest with `PYTHONPATH` set to the exercise dir, deletes `submission.py` in finally; `compute_diff()` for unified diff vs. reference
-- `cli.py` — `handle_add()` for `code-review add <dir>`; extracts slug from dirname, title from first H1
-- `tui.py` — `ExerciseListScreen` (due list, reload on resume) + `ReviewScreen` (problem → `$EDITOR` → test results + diff → grade buttons); `main()` entry point
+- `tui.py` — `ExerciseListScreen` (due list, reload on resume) + `ReviewScreen` (problem → `$EDITOR` → test results + diff → grade buttons); `main()` entry point. On startup, runs `sync_exercises_from_disk()` to auto-register any unregistered exercise directory (trio of `problem.md`, `test_solution.py`, `solution.py`) found under `exercises/`.
 
 ## Key Constraints
 
@@ -121,10 +118,10 @@ exercises/
     <slug>/
         problem.md          # shown to user; first H1 becomes the title
         test_solution.py    # pytest tests; MUST import from `submission` (not `solution`)
-        solution.py         # reference; revealed as diff after grading (optional)
+        solution.py         # reference; revealed as diff after grading
 ```
 
-- Slug = directory name; registered once with `code-review add <dir>`
+- Slug = directory name; auto-discovered on TUI startup. A directory is picked up if it contains all three files (`problem.md`, `test_solution.py`, `solution.py`). Existing rows keep their scheduling state.
 - `test_solution.py` imports `from submission import <func>` — the runner writes the user's code as `submission.py` and sets `PYTHONPATH` to the exercise dir before running pytest
 - `exercises/**/submission.py` is gitignored (written at runtime, always deleted after the run)
 
