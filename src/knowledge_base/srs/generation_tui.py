@@ -244,6 +244,8 @@ class GenerationReviewApp(App):
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+s", "toggle_stats", "Stats", priority=True),
         Binding("ctrl+b", "back_to_catalog", "Catalog", priority=True),
+        Binding("ctrl+p", "auto_pass", "Auto Pass", priority=True),
+        Binding("ctrl+x", "drop_card", "Drop", priority=True),
     ]
 
     def __init__(
@@ -404,6 +406,96 @@ class GenerationReviewApp(App):
             CatalogScreen(self.conn, self.deck_filter),
             callback=self._on_catalog_result,
         )
+
+    def action_auto_pass(self) -> None:
+        """Auto-pass the current card without typing — keeps it in the queue."""
+        if self._current_item is None:
+            return
+        if self._awaiting_gen_grade or self._awaiting_recall_grade or self._awaiting_advance:
+            return
+        if self.showing_stats:
+            return
+
+        item = self._current_item
+        card = item.card
+
+        if card["phase"] == "generation":
+            if card.get("card_type") == "exact":
+                card_id = card["card_id"]
+                count = self._pass_counts.get(card_id, 0) + 1
+                self._pass_counts[card_id] = count
+                self._finish_review()
+                if self.ordered_practice:
+                    self._requeue(item)
+                else:
+                    pos = massed_requeue_position(
+                        passed=True, pass_count=count, queue_len=len(self.queue),
+                    )
+                    self._requeue(item, pos)
+            else:
+                self._handle_generation_pass()
+        else:
+            self._auto_pass_recall()
+
+    def _auto_pass_recall(self) -> None:
+        """Auto-pass a recall card as Good without showing feedback."""
+        item = self._current_item
+        card = item.card
+        now_dt = datetime.now(timezone.utc)
+        now_str = now_dt.isoformat()
+        elapsed_days = self._elapsed_days(card)
+
+        last_review_dt = None
+        if card["last_review"]:
+            try:
+                last_review_dt = datetime.fromisoformat(card["last_review"])
+            except (ValueError, TypeError):
+                pass
+
+        result: SchedulingResult = schedule(
+            difficulty=card["difficulty"],
+            stability=card["stability"],
+            reps=card["reps"],
+            last_review=last_review_dt,
+            grade=Grade.GOOD,
+            now=now_dt,
+        )
+
+        update_generation_scheduling(self.conn, card["card_id"], {
+            "difficulty": result.difficulty,
+            "stability": result.stability,
+            "last_review": now_str,
+            "due": result.due,
+            "reps": result.reps,
+        })
+
+        insert_generation_review(self.conn, {
+            "card_id": card["card_id"],
+            "timestamp": now_str,
+            "answer_mode": "recall",
+            "phase_level": None,
+            "grade": int(Grade.GOOD),
+            "passed": None,
+            "elapsed_days": elapsed_days,
+            "interval_applied": result.interval,
+        })
+
+        self._finish_review()
+
+    def action_drop_card(self) -> None:
+        """Remove the current card from the session without requeueing."""
+        if self._current_item is None:
+            return
+        if self.showing_stats:
+            return
+
+        self._pending_requeue = None
+        self._awaiting_gen_grade = False
+        self._awaiting_recall_grade = False
+        self._awaiting_advance = False
+        self.total_reviewed += 1
+        self._current_item = None
+        self._show_next()
 
     # ------------------------------------------------------------------
     # Queue management
@@ -888,7 +980,6 @@ class GenerationReviewApp(App):
             new_level = level + 1
             card["masking_level"] = new_level
             card["_practice_max_passes"] = 0
-            self._finish_review()
             if self.ordered_practice:
                 self._requeue(item)
             else:
@@ -896,6 +987,7 @@ class GenerationReviewApp(App):
                     passed=True, pass_count=0, queue_len=len(self.queue),
                 )
                 self._requeue(item, pos)
+            self._finish_review()
         elif level == MAX_MASKING_LEVEL:
             # Need 2 passes at max masking before advancing to type-in
             passes = card.get("_practice_max_passes", 0) + 1
@@ -903,7 +995,6 @@ class GenerationReviewApp(App):
             if passes >= 2:
                 card["masking_level"] = PRACTICE_TYPEIN_LEVEL
                 card["_practice_max_passes"] = 0
-                self._finish_review()
                 if self.ordered_practice:
                     self._requeue(item)
                 else:
@@ -912,7 +1003,6 @@ class GenerationReviewApp(App):
                     )
                     self._requeue(item, pos)
             else:
-                self._finish_review()
                 if self.ordered_practice:
                     self._requeue(item)
                 else:
@@ -920,11 +1010,11 @@ class GenerationReviewApp(App):
                         passed=True, pass_count=0, queue_len=len(self.queue),
                     )
                     self._requeue(item, pos)
+            self._finish_review()
         else:
             # Type-in level pass — increment pass counter
             count = self._pass_counts.get(card_id, 0) + 1
             self._pass_counts[card_id] = count
-            self._finish_review()
             if self.ordered_practice:
                 self._requeue(item)
             else:
@@ -932,6 +1022,7 @@ class GenerationReviewApp(App):
                     passed=True, pass_count=count, queue_len=len(self.queue),
                 )
                 self._requeue(item, pos)
+            self._finish_review()
 
     def _handle_generation_fail(self) -> None:
         """Handle a Fail grade for a generation-phase card."""
@@ -943,11 +1034,11 @@ class GenerationReviewApp(App):
             card["masking_level"] = 0
             card["consecutive_max_passes"] = 0
             card["_practice_max_passes"] = 0
-            self._finish_review()
             if self.ordered_practice:
                 self._requeue(item)
             else:
                 self._requeue(item, 1)
+            self._finish_review()
             return
 
         now_str = datetime.now(timezone.utc).isoformat()
