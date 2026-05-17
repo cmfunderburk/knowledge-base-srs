@@ -150,18 +150,20 @@ class QueueItem:
 
 def _token_diff_markup(results: list[TokenResult]) -> str:
     """Build Rich markup showing a coloured word-by-word diff."""
+    from rich.markup import escape
+
     parts: list[str] = []
     for r in results:
         if r.status == "exact":
-            parts.append(f"[green]{r.expected}[/]")
+            parts.append(f"[green]{escape(r.expected)}[/]")
         elif r.status == "close":
-            parts.append(f"[yellow]{r.expected}[/]")
+            parts.append(f"[yellow]{escape(r.expected)}[/]")
         elif r.status == "wrong":
-            parts.append(f"[red]{r.expected}[/]")
+            parts.append(f"[red]{escape(r.expected)}[/]")
         elif r.status == "missing":
-            parts.append(f"[red]__{r.expected}__[/]")
+            parts.append(f"[red]__{escape(r.expected)}__[/]")
         elif r.status == "extra":
-            parts.append(f"[dim strike]{r.typed}[/]")
+            parts.append(f"[dim strike]{escape(r.typed)}[/]")
     return " ".join(parts)
 
 
