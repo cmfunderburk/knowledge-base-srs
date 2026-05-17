@@ -8,6 +8,7 @@ cards to practice).
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 
@@ -77,6 +78,17 @@ def _get_reading_title(
     if row and row[0]:
         return row[0]
     return None
+
+
+def _natural_sort_key(text: str) -> list[int | str]:
+    """Split text into string/int chunks for natural sorting."""
+    parts: list[int | str] = []
+    for chunk in re.split(r'(\d+)', text.lower()):
+        if chunk.isdigit():
+            parts.append(int(chunk))
+        else:
+            parts.append(chunk)
+    return parts
 
 
 def build_tree(
@@ -222,8 +234,8 @@ def build_tree(
 
     for deck_name, deck_node in deck_nodes.items():
         deck_node.card_count = sum(t.card_count for t in deck_node.children)
-        # Sort topics alphabetically within each deck
-        deck_node.children.sort(key=lambda n: n.label.lower())
+        # Sort topics with natural numeric ordering (Reading 2 before Reading 10)
+        deck_node.children.sort(key=lambda n: _natural_sort_key(n.label))
 
     return list(deck_nodes.values())
 
