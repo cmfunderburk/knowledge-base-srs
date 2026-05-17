@@ -1434,6 +1434,14 @@ def main() -> None:
         help="How to split pasted text into cards (default: sentence).",
     )
     parser.add_argument(
+        "--title", default=None,
+        help="Title/question displayed above masked text (used with --paste).",
+    )
+    parser.add_argument(
+        "--raw", action="store_true",
+        help="Keep pasted text as a single card instead of splitting (used with --paste).",
+    )
+    parser.add_argument(
         "--start-level", type=int, default=0,
         help="Initial masking level for practice (0-2, default: 0). "
              "Use 2 to start at max masking for familiar material.",
@@ -1468,10 +1476,15 @@ def main() -> None:
                 lines.append(line)
             text = "\n".join(lines)
 
-        card_texts = split_paste_text(text, args.split_by)
+        if args.raw:
+            card_texts = [text.strip()] if text.strip() else []
+        else:
+            card_texts = split_paste_text(text, args.split_by)
         if not card_texts:
             print("No cards generated from pasted text.")
             return
+
+        paste_title = args.title
 
         if args.save_as is not None:
             # Persist to DB
@@ -1480,6 +1493,8 @@ def main() -> None:
             section_id = re.sub(r"[^a-z0-9]+", "-", args.save_as.lower()).strip("-")
             deck = args.deck or "paste"
             for i, card_text in enumerate(card_texts):
+                counter = f"[{i + 1}/{len(card_texts)}]"
+                question = f"{paste_title}  {counter}" if paste_title else counter
                 upsert_generation_card(conn, {
                     "deck": deck,
                     "topic_id": "0",
@@ -1487,7 +1502,7 @@ def main() -> None:
                     "section_id": section_id,
                     "section_title": args.save_as,
                     "card_index": i,
-                    "question": f"[{i + 1}/{len(card_texts)}]",
+                    "question": question,
                     "answer": card_text,
                     "tags": "[]",
                 })
@@ -1497,6 +1512,8 @@ def main() -> None:
         # Build ephemeral card dicts (negative card_ids signal ephemeral)
         paste_card_dicts: list[dict] = []
         for i, card_text in enumerate(card_texts):
+            counter = f"[{i + 1}/{len(card_texts)}]"
+            question = f"{paste_title}  {counter}" if paste_title else counter
             paste_card_dicts.append({
                 "card_id": -(i + 1),
                 "deck": args.deck or "paste",
@@ -1505,7 +1522,7 @@ def main() -> None:
                 "section_id": "paste",
                 "section_title": None,
                 "card_index": i,
-                "question": f"[{i + 1}/{len(card_texts)}]",
+                "question": question,
                 "answer": card_text,
                 "tags": "[]",
                 "masking_level": 0,
