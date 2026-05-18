@@ -117,32 +117,13 @@ def get_due_exercises(conn: sqlite3.Connection, as_of: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def update_exercise_scheduling(
-    conn: sqlite3.Connection, exercise_id: int, box: int, due: str, now: str
-) -> None:
-    cur = conn.execute(
-        "UPDATE code_exercises SET box=?, due=?, last_review=?, reps=reps+1 WHERE exercise_id=?",
-        (box, due, now, exercise_id),
-    )
-    conn.commit()
-    if cur.rowcount == 0:
-        raise ValueError(f"No exercise with exercise_id={exercise_id}")
-
-
-_REVIEW_LOG_COLS = ("exercise_id", "timestamp", "grade", "prior_box", "new_box", "elapsed_days")
-
-
-def insert_review_log(conn: sqlite3.Connection, review: dict) -> int:
-    unknown = set(review) - set(_REVIEW_LOG_COLS)
-    if unknown:
-        raise ValueError(f"Unknown review_log columns: {unknown}")
-    cols = [c for c in _REVIEW_LOG_COLS if c in review]
-    cur = conn.execute(
-        f"INSERT INTO code_review_log ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
-        [review[c] for c in cols],
-    )
-    conn.commit()
-    return cur.lastrowid
+_REVIEW_LOG_COLS = (
+    "exercise_id", "timestamp", "grade",
+    "prior_phase", "new_phase",
+    "prior_stability", "new_stability",
+    "prior_difficulty", "new_difficulty",
+    "elapsed_days",
+)
 
 
 def get_all_exercises(conn: sqlite3.Connection) -> list[dict]:
@@ -154,14 +135,21 @@ def get_all_exercises(conn: sqlite3.Connection) -> list[dict]:
 
 def reset_exercise(conn: sqlite3.Connection, exercise_id: int) -> None:
     conn.execute(
-        "UPDATE code_exercises SET box=1, reps=0, last_review=NULL, due=NULL WHERE exercise_id=?",
+        "UPDATE code_exercises SET "
+        "phase=1, step_index=0, stability=0.0, difficulty=0.0, "
+        "reps=0, last_review=NULL, due=NULL "
+        "WHERE exercise_id=?",
         (exercise_id,),
     )
     conn.commit()
 
 
 def reset_all_exercises(conn: sqlite3.Connection) -> None:
-    conn.execute("UPDATE code_exercises SET box=1, reps=0, last_review=NULL, due=NULL")
+    conn.execute(
+        "UPDATE code_exercises SET "
+        "phase=1, step_index=0, stability=0.0, difficulty=0.0, "
+        "reps=0, last_review=NULL, due=NULL"
+    )
     conn.commit()
 
 
@@ -227,22 +215,43 @@ def sync_exercises_from_disk(
 def record_grade(
     conn: sqlite3.Connection,
     exercise_id: int,
-    box: int,
-    due: str,
-    now: str,
+    new_state: dict,
     review: dict,
+    now: str,
 ) -> None:
-    """Update scheduling and insert review log atomically."""
-    unknown = set(review) - set(_REVIEW_LOG_COLS)
+    """Update scheduling and insert review log atomically.
+
+    new_state must contain: phase, step_index, stability, difficulty, reps,
+    last_review, due. review must contain the keys listed in _REVIEW_LOG_COLS
+    except `timestamp` (filled from `now`).
+    """
+    review_with_ts = {**review, "timestamp": now}
+    unknown = set(review_with_ts) - set(_REVIEW_LOG_COLS)
     if unknown:
         raise ValueError(f"Unknown review_log columns: {unknown}")
-    cols = [c for c in _REVIEW_LOG_COLS if c in review]
+    required = {"exercise_id", "grade", "prior_phase", "new_phase",
+                "prior_stability", "new_stability",
+                "prior_difficulty", "new_difficulty", "elapsed_days"}
+    missing = required - set(review_with_ts)
+    if missing:
+        raise ValueError(f"Missing review_log columns: {missing}")
+
+    cols = [c for c in _REVIEW_LOG_COLS if c in review_with_ts]
     with conn:
         conn.execute(
-            "UPDATE code_exercises SET box=?, due=?, last_review=?, reps=reps+1 WHERE exercise_id=?",
-            (box, due, now, exercise_id),
+            "UPDATE code_exercises SET "
+            "phase=?, step_index=?, stability=?, difficulty=?, "
+            "last_review=?, due=?, reps=? "
+            "WHERE exercise_id=?",
+            (
+                new_state["phase"], new_state["step_index"],
+                new_state["stability"], new_state["difficulty"],
+                new_state["last_review"], new_state["due"], new_state["reps"],
+                exercise_id,
+            ),
         )
         conn.execute(
-            f"INSERT INTO code_review_log ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
-            [review[c] for c in cols],
+            f"INSERT INTO code_review_log ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' * len(cols))})",
+            [review_with_ts[c] for c in cols],
         )

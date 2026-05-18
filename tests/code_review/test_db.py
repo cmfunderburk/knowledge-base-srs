@@ -133,3 +133,91 @@ def test_init_db_fresh_no_migration_purge(tmp_path):
     from knowledge_base.code_review import db as db_mod
     db_mod.init_db(tmp_path / "fresh.db")
     assert db_mod.LAST_MIGRATION_PURGE == []
+
+
+from knowledge_base.code_review.db import record_grade, reset_exercise, reset_all_exercises, get_all_exercises
+
+
+def _make_review_state(prior, new):
+    """Build a record_grade payload from before/after dicts."""
+    return {
+        "exercise_id": prior["exercise_id"],
+        "prior_phase": prior["phase"],
+        "new_phase": new["phase"],
+        "prior_stability": prior["stability"],
+        "new_stability": new["stability"],
+        "prior_difficulty": prior["difficulty"],
+        "new_difficulty": new["difficulty"],
+        "grade": 3,
+        "elapsed_days": 1.0,
+    }
+
+
+def test_record_grade_writes_both_tables_atomically(conn):
+    eid = add_exercise(conn, "rg", "RG", path="rg")
+    prior = get_exercise_by_slug(conn, "rg")
+    new = {
+        "phase": 1, "step_index": 1, "stability": 0.0, "difficulty": 0.0,
+        "reps": 1, "last_review": NOW_ISO, "due": "2026-01-01T00:10:00+00:00",
+    }
+    review = _make_review_state(prior, {**new, "phase": 1, "stability": 0.0, "difficulty": 0.0})
+    record_grade(conn, exercise_id=eid, new_state=new, review=review, now=NOW_ISO)
+
+    after = get_exercise_by_slug(conn, "rg")
+    assert after["phase"] == 1
+    assert after["step_index"] == 1
+    assert after["due"] == "2026-01-01T00:10:00+00:00"
+    assert after["last_review"] == NOW_ISO
+    assert after["reps"] == 1
+
+    logs = conn.execute("SELECT * FROM code_review_log WHERE exercise_id=?", (eid,)).fetchall()
+    assert len(logs) == 1
+    assert logs[0]["grade"] == 3
+
+
+def test_record_grade_atomicity_on_bad_review_dict(conn):
+    """A bad review payload rolls back both writes."""
+    eid = add_exercise(conn, "atom", "Atom", path="atom")
+    new = {
+        "phase": 2, "step_index": 0, "stability": 3.0, "difficulty": 5.0,
+        "reps": 1, "last_review": NOW_ISO, "due": "2026-01-04T00:00:00+00:00",
+    }
+    review = {"exercise_id": eid, "bogus_column": 1}
+    with pytest.raises(ValueError):
+        record_grade(conn, exercise_id=eid, new_state=new, review=review, now=NOW_ISO)
+
+    after = get_exercise_by_slug(conn, "atom")
+    # Should still be in initial state
+    assert after["phase"] == 1
+    assert after["reps"] == 0
+    assert conn.execute("SELECT COUNT(*) FROM code_review_log").fetchone()[0] == 0
+
+
+def test_reset_exercise_clears_state(conn):
+    eid = add_exercise(conn, "rst", "Reset", path="rst")
+    new = {
+        "phase": 2, "step_index": 0, "stability": 5.0, "difficulty": 6.0,
+        "reps": 3, "last_review": NOW_ISO, "due": "2026-02-01T00:00:00+00:00",
+    }
+    prior = get_exercise_by_slug(conn, "rst")
+    review = _make_review_state(prior, new)
+    record_grade(conn, exercise_id=eid, new_state=new, review=review, now=NOW_ISO)
+
+    reset_exercise(conn, eid)
+    after = get_exercise_by_slug(conn, "rst")
+    assert after["phase"] == 1
+    assert after["step_index"] == 0
+    assert after["stability"] == 0.0
+    assert after["difficulty"] == 0.0
+    assert after["reps"] == 0
+    assert after["last_review"] is None
+    assert after["due"] is None
+
+
+def test_reset_all_exercises_resets_every_row(conn):
+    add_exercise(conn, "a", "A", path="a")
+    add_exercise(conn, "b", "B", path="b")
+    reset_all_exercises(conn)
+    for ex in get_all_exercises(conn):
+        assert ex["phase"] == 1
+        assert ex["reps"] == 0
