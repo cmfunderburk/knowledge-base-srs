@@ -104,6 +104,8 @@ def schedule(state: CardState, grade: Grade, now: datetime) -> ScheduleResult:
 
     if state.phase == Phase.LEARNING:
         return _schedule_learning(state, grade, now)
+    if state.phase == Phase.REVIEW:
+        return _schedule_review(state, grade, now)
     raise ValueError(f"unknown phase: {state.phase!r}")
 
 
@@ -146,6 +148,36 @@ def _schedule_learning(state: CardState, grade: Grade, now: datetime) -> Schedul
         step_index=new_step,
         stability=0.0,
         difficulty=0.0,
+        reps=state.reps + 1,
+        last_review=now.isoformat(),
+        due=due,
+    )
+
+
+def _schedule_review(state: CardState, grade: Grade, now: datetime) -> ScheduleResult:
+    if state.last_review is None:
+        raise ValueError("REVIEW-phase card must have last_review set")
+    last_review = datetime.fromisoformat(state.last_review)
+    if last_review.tzinfo is None:
+        last_review = last_review.replace(tzinfo=timezone.utc)
+    elapsed_days = max(0.0, (now - last_review).total_seconds() / 86400.0)
+
+    if grade == Grade.AGAIN:
+        # Handled in Task 5
+        raise NotImplementedError("REVIEW Again handled in Task 5")
+
+    from knowledge_base.srs.fsrs import compute_retrievability
+    retrievability = compute_retrievability(elapsed_days, state.stability)
+    new_stability = recall_stability(state.stability, state.difficulty, retrievability, grade)
+    new_difficulty = update_difficulty(state.difficulty, grade)
+
+    interval = compute_interval(new_stability, desired_retention=DESIRED_RETENTION)
+    due = (now + timedelta(days=interval)).isoformat()
+    return ScheduleResult(
+        phase=Phase.REVIEW,
+        step_index=0,
+        stability=new_stability,
+        difficulty=new_difficulty,
         reps=state.reps + 1,
         last_review=now.isoformat(),
         due=due,

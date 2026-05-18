@@ -107,3 +107,69 @@ def test_learning_grade_increments_reps_and_sets_last_review():
     result = schedule(state, Grade.GOOD, NOW)
     assert result.reps == 1
     assert result.last_review == NOW.isoformat()
+
+
+from knowledge_base.srs.fsrs import (
+    compute_retrievability,
+    recall_stability,
+    update_difficulty,
+)
+
+
+def _review_state(stability: float = 3.0, difficulty: float = 5.0,
+                  last_review_iso: str | None = None, reps: int = 5) -> CardState:
+    if last_review_iso is None:
+        last_review_iso = (NOW - timedelta(days=2)).isoformat()
+    return CardState(
+        phase=Phase.REVIEW,
+        step_index=0,
+        stability=stability,
+        difficulty=difficulty,
+        reps=reps,
+        last_review=last_review_iso,
+        due=NOW.isoformat(),
+    )
+
+
+def test_review_good_uses_recall_stability_and_0_95_retention():
+    state = _review_state(stability=3.0, difficulty=5.0,
+                          last_review_iso=(NOW - timedelta(days=3)).isoformat())
+    result = schedule(state, Grade.GOOD, NOW)
+    assert result.phase == Phase.REVIEW
+
+    # Recompute the same math here to verify wiring (not asserting any specific number).
+    elapsed = 3.0
+    r = compute_retrievability(elapsed, 3.0)
+    expected_s = recall_stability(3.0, 5.0, r, Grade.GOOD)
+    assert result.stability == pytest.approx(expected_s, rel=1e-9)
+
+    expected_d = update_difficulty(5.0, Grade.GOOD)
+    assert result.difficulty == pytest.approx(expected_d, rel=1e-9)
+
+    # Interval must use 0.95 retention, not the module default 0.9
+    from knowledge_base.code_review.scheduler import compute_interval as _ci
+    expected_interval = _ci(expected_s, desired_retention=0.95)
+    expected_due = (NOW + timedelta(days=expected_interval)).isoformat()
+    assert result.due == expected_due
+
+
+def test_review_hard_produces_smaller_stability_than_good():
+    state = _review_state(stability=10.0, difficulty=5.0,
+                          last_review_iso=(NOW - timedelta(days=8)).isoformat())
+    good_result = schedule(state, Grade.GOOD, NOW)
+    hard_result = schedule(state, Grade.HARD, NOW)
+    assert hard_result.stability < good_result.stability
+
+
+def test_review_easy_produces_larger_stability_than_good():
+    state = _review_state(stability=10.0, difficulty=5.0,
+                          last_review_iso=(NOW - timedelta(days=8)).isoformat())
+    good_result = schedule(state, Grade.GOOD, NOW)
+    easy_result = schedule(state, Grade.EASY, NOW)
+    assert easy_result.stability > good_result.stability
+
+
+def test_review_grade_increments_reps():
+    state = _review_state(reps=7)
+    result = schedule(state, Grade.GOOD, NOW)
+    assert result.reps == 8
