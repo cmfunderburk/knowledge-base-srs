@@ -15,6 +15,7 @@ from enum import IntEnum
 from knowledge_base.srs.fsrs import (
     Grade,
     compute_interval,
+    compute_retrievability,
     initial_difficulty,
     initial_stability,
     lapse_stability,
@@ -166,7 +167,6 @@ def _schedule_review(state: CardState, grade: Grade, now: datetime) -> ScheduleR
         # Handled in Task 5
         raise NotImplementedError("REVIEW Again handled in Task 5")
 
-    from knowledge_base.srs.fsrs import compute_retrievability
     retrievability = compute_retrievability(elapsed_days, state.stability)
     new_stability = recall_stability(state.stability, state.difficulty, retrievability, grade)
     new_difficulty = update_difficulty(state.difficulty, grade)
