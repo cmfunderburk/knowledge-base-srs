@@ -86,3 +86,67 @@ def initial_state(now: datetime) -> CardState:
         last_review=None,
         due=now.isoformat(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Scheduler entry point
+# ---------------------------------------------------------------------------
+
+def schedule(state: CardState, grade: Grade, now: datetime) -> ScheduleResult:
+    """Compute the new state after grading.
+
+    Pure function. Dispatches on state.phase.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if grade not in (Grade.AGAIN, Grade.HARD, Grade.GOOD, Grade.EASY):
+        raise ValueError(f"unknown grade: {grade!r}")
+
+    if state.phase == Phase.LEARNING:
+        return _schedule_learning(state, grade, now)
+    raise ValueError(f"unknown phase: {state.phase!r}")
+
+
+def _graduate(grade: Grade, now: datetime, reps: int) -> ScheduleResult:
+    """Promote a learning card to REVIEW with FSRS-seeded stability/difficulty."""
+    stability = initial_stability(grade)
+    difficulty = initial_difficulty(grade)
+    interval = compute_interval(stability, desired_retention=DESIRED_RETENTION)
+    due = (now + timedelta(days=interval)).isoformat()
+    return ScheduleResult(
+        phase=Phase.REVIEW,
+        step_index=0,
+        stability=stability,
+        difficulty=difficulty,
+        reps=reps + 1,
+        last_review=now.isoformat(),
+        due=due,
+    )
+
+
+def _schedule_learning(state: CardState, grade: Grade, now: datetime) -> ScheduleResult:
+    if state.step_index < 0 or state.step_index >= len(LEARNING_STEPS_SEC):
+        raise ValueError(f"learning step_index out of range: {state.step_index}")
+
+    if grade == Grade.EASY:
+        return _graduate(grade, now, state.reps)
+
+    if grade == Grade.AGAIN:
+        new_step = 0
+    elif grade == Grade.HARD:
+        new_step = state.step_index
+    else:  # GOOD
+        new_step = state.step_index + 1
+        if new_step >= len(LEARNING_STEPS_SEC):
+            return _graduate(grade, now, state.reps)
+
+    due = (now + timedelta(seconds=LEARNING_STEPS_SEC[new_step])).isoformat()
+    return ScheduleResult(
+        phase=Phase.LEARNING,
+        step_index=new_step,
+        stability=0.0,
+        difficulty=0.0,
+        reps=state.reps + 1,
+        last_review=now.isoformat(),
+        due=due,
+    )
