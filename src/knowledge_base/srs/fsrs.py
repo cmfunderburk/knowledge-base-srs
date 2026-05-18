@@ -89,14 +89,14 @@ def compute_retrievability(elapsed_days: float, stability: float) -> float:
     return (1 + FACTOR * elapsed_days / stability) ** DECAY
 
 
-def compute_interval(stability: float) -> float:
+def compute_interval(stability: float, desired_retention: float = DESIRED_RETENTION) -> float:
     """Return next review interval in days.
 
     I(S) = (S / FACTOR) * (R_d^(1/DECAY) - 1)
 
     With R_d = 0.9, this simplifies to I ≈ S.
     """
-    return (stability / FACTOR) * (DESIRED_RETENTION ** (1 / DECAY) - 1)
+    return (stability / FACTOR) * (desired_retention ** (1 / DECAY) - 1)
 
 
 def initial_stability(grade: Grade) -> float:

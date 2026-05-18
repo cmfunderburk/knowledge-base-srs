@@ -275,3 +275,18 @@ class TestSchedule:
         )
         # Short-term stability should be >= initial stability (floor applied)
         assert result.stability >= initial_s
+
+
+def test_compute_interval_accepts_desired_retention_kwarg():
+    from knowledge_base.srs.fsrs import compute_interval
+
+    s = 10.0
+    default_interval = compute_interval(s)
+    high_retention_interval = compute_interval(s, desired_retention=0.95)
+    low_retention_interval = compute_interval(s, desired_retention=0.85)
+
+    # Higher retention target → shorter interval (review sooner to keep recall high)
+    assert high_retention_interval < default_interval
+    assert default_interval < low_retention_interval
+    # Default kwarg matches the module constant (0.9)
+    assert compute_interval(s) == compute_interval(s, desired_retention=0.9)
