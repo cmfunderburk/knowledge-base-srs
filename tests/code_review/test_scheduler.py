@@ -287,3 +287,69 @@ def test_full_lapse_roundtrip_preserves_lapse_stability():
     assert after_good_2.phase == Phase.REVIEW
     # The stability that re-enters REVIEW is the lapse-time-computed value from step 1
     assert after_good_2.stability == after_lapse.stability
+
+
+def test_clock_skew_floored_to_zero_elapsed():
+    """If now < last_review, elapsed_days is clamped to 0 (no raise)."""
+    future_last_review = (NOW + timedelta(hours=2)).isoformat()
+    state = CardState(
+        phase=Phase.REVIEW,
+        step_index=0,
+        stability=3.0,
+        difficulty=5.0,
+        reps=5,
+        last_review=future_last_review,
+        due=(NOW + timedelta(days=1)).isoformat(),
+    )
+    # Should not raise; the function should compute as if elapsed_days = 0.
+    result = schedule(state, Grade.GOOD, NOW)
+    assert result.phase == Phase.REVIEW
+
+
+def test_unknown_phase_raises():
+    state = CardState(
+        phase=99,  # type: ignore[arg-type]
+        step_index=0, stability=0.0, difficulty=0.0,
+        reps=0, last_review=None, due=NOW.isoformat(),
+    )
+    with pytest.raises(ValueError, match="unknown phase"):
+        schedule(state, Grade.GOOD, NOW)
+
+
+def test_unknown_grade_raises():
+    state = _learning_state(step_index=0)
+    with pytest.raises(ValueError, match="unknown grade"):
+        schedule(state, 99, NOW)  # type: ignore[arg-type]
+
+
+def test_learning_step_index_out_of_range_raises():
+    state = _learning_state(step_index=4)
+    with pytest.raises(ValueError, match="learning step_index out of range"):
+        schedule(state, Grade.GOOD, NOW)
+
+
+def test_relearning_step_index_out_of_range_raises():
+    state = _relearning_state(step_index=2)
+    with pytest.raises(ValueError, match="relearning step_index out of range"):
+        schedule(state, Grade.GOOD, NOW)
+
+
+def test_review_state_without_last_review_raises():
+    state = CardState(
+        phase=Phase.REVIEW, step_index=0,
+        stability=3.0, difficulty=5.0, reps=1,
+        last_review=None, due=NOW.isoformat(),
+    )
+    with pytest.raises(ValueError, match="last_review"):
+        schedule(state, Grade.GOOD, NOW)
+
+
+def test_due_within_learn_ahead_helper():
+    """Helper used by DB layer to decide which learning cards to surface."""
+    from knowledge_base.code_review.scheduler import is_due_within_learn_ahead
+    in_window = (NOW + timedelta(minutes=15)).isoformat()
+    out_of_window = (NOW + timedelta(minutes=30)).isoformat()
+    past = (NOW - timedelta(minutes=5)).isoformat()
+    assert is_due_within_learn_ahead(in_window, NOW) is True
+    assert is_due_within_learn_ahead(out_of_window, NOW) is False
+    assert is_due_within_learn_ahead(past, NOW) is True

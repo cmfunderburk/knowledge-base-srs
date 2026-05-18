@@ -238,3 +238,17 @@ def _schedule_relearning(state: CardState, grade: Grade, now: datetime) -> Sched
         last_review=now.isoformat(),
         due=due,
     )
+
+
+# ---------------------------------------------------------------------------
+# Learn-ahead helper
+# ---------------------------------------------------------------------------
+
+def is_due_within_learn_ahead(due_iso: str, now: datetime) -> bool:
+    """True if a card's due time is past, or within LEARN_AHEAD_SEC of now."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    due = datetime.fromisoformat(due_iso)
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    return (due - now).total_seconds() <= LEARN_AHEAD_SEC
