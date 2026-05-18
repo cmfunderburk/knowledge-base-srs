@@ -13,7 +13,7 @@ import os
 import subprocess
 import tempfile
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -34,8 +34,47 @@ from knowledge_base.code_review.db import (
     reset_exercise,
     sync_exercises_from_disk,
 )
-from knowledge_base.code_review.leitner import schedule as leitner_schedule
 from knowledge_base.code_review.runner import compute_side_by_side_diff, run_tests
+from knowledge_base.code_review.scheduler import (
+    LEARN_AHEAD_SEC,
+    Phase,
+    schedule as fsrs_schedule,
+)
+
+
+# ---------------------------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------------------------
+
+
+def format_due_label(due_iso: str | None, now: datetime) -> str:
+    """Render a card's due time relative to `now`.
+
+    - None → "new"
+    - past or now → "due now"
+    - <1h ahead → "due in Xm"
+    - <24h ahead → "due in Xh"
+    - >=24h ahead → "due YYYY-MM-DD"
+    """
+    if due_iso is None:
+        return "new"
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    due = datetime.fromisoformat(due_iso)
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    delta_sec = (due - now).total_seconds()
+    if delta_sec <= 0:
+        return "due now"
+    if delta_sec < 3600:
+        return f"due in {int(delta_sec // 60)}m"
+    if delta_sec < 86400:
+        return f"due in {int(delta_sec // 3600)}h"
+    return f"due {due.date().isoformat()}"
+
+
+def _phase_label(phase: int) -> str:
+    return {1: "learn", 2: "review", 3: "relearn"}.get(int(phase), "?")
 
 
 # ---------------------------------------------------------------------------
@@ -91,18 +130,32 @@ class ExerciseListScreen(Screen):
     def _reload(self) -> None:
         lv = self.query_one("#exercise-list", ListView)
         lv.clear()
-        now = datetime.now(timezone.utc).isoformat()
-        exercises = get_due_exercises(self._conn, now)
+        now = datetime.now(timezone.utc)
+        as_of = (now + timedelta(seconds=LEARN_AHEAD_SEC)).isoformat()
+        exercises = get_due_exercises(self._conn, as_of)
         if not exercises:
-            lv.append(ListItem(Label("No exercises due.  m = massed practice   s = stats")))
+            # If there are learning cards beyond learn-ahead, surface when next one is due.
+            future = [
+                e for e in get_all_exercises(self._conn)
+                if e["due"] is not None and datetime.fromisoformat(e["due"]) > now + timedelta(seconds=LEARN_AHEAD_SEC)
+            ]
+            if future:
+                future.sort(key=lambda e: e["due"])
+                next_due = datetime.fromisoformat(future[0]["due"])
+                minutes_out = max(1, int((next_due - now).total_seconds() // 60))
+                lv.append(ListItem(Label(
+                    f"No exercises due.  {len(future)} in learning, next due in {minutes_out}m.  m = massed   s = stats"
+                )))
+            else:
+                lv.append(ListItem(Label("No exercises due.  m = massed practice   s = stats")))
         else:
             for ex in exercises:
-                due_str = ex["due"][:10] if ex["due"] else "new"
+                due_str = format_due_label(ex["due"], now)
                 cat = category_of(ex)
                 prefix = f"{cat} · " if cat else ""
                 label = (
                     f"[{due_str}]  {prefix}{ex['slug']}  —  {ex['title']}  "
-                    f"(box {ex['box']}, reps {ex['reps']})"
+                    f"({_phase_label(ex['phase'])}, reps {ex['reps']})"
                 )
                 item = ListItem(Label(label))
                 item._exercise = ex  # type: ignore[attr-defined]
@@ -180,10 +233,10 @@ class MassedBrowseScreen(Screen):
             flat_index += 1
             for ex in group:
                 marker = "[✓]" if ex["exercise_id"] in ids else "[ ]"
-                due_str = ex["due"][:10] if ex["due"] else "new"
+                due_str = format_due_label(ex["due"], datetime.now(timezone.utc))
                 label = (
                     f"{marker} [{due_str}]  {ex['slug']}  —  {ex['title']}  "
-                    f"(box {ex['box']}, reps {ex['reps']})"
+                    f"({_phase_label(ex['phase'])}, reps {ex['reps']})"
                 )
                 item = ListItem(Label(label))
                 item._exercise = ex  # type: ignore[attr-defined]
@@ -294,7 +347,7 @@ class StatsScreen(Screen):
                 due  = ex["due"][:10]         if ex["due"]         else "—"
                 last = ex["last_review"][:10] if ex["last_review"] else "never"
                 label = (
-                    f"box {ex['box']}  reps {ex['reps']:>3}  "
+                    f"{_phase_label(ex['phase'])}  reps {ex['reps']:>3}  "
                     f"last {last}  next {due}    {ex['slug']}"
                 )
                 item = ListItem(Label(label))
@@ -473,34 +526,55 @@ class ReviewScreen(Screen):
             return
 
         # SRS mode
-        grade = int(event.button.id.split("-")[1])  # "grade-1" → 1
+        grade_int = int(event.button.id.split("-")[1])  # "grade-1" → 1
+        from knowledge_base.srs.fsrs import Grade
+        from knowledge_base.code_review.scheduler import CardState
+        grade = Grade(grade_int)
         now = datetime.now(timezone.utc)
         ex = self._exercise
 
-        last_review = ex.get("last_review")
-        if last_review:
-            lr = datetime.fromisoformat(last_review)
+        prior = CardState(
+            phase=Phase(ex["phase"]),
+            step_index=ex["step_index"],
+            stability=ex["stability"],
+            difficulty=ex["difficulty"],
+            reps=ex["reps"],
+            last_review=ex["last_review"],
+            due=ex["due"] or now.isoformat(),
+        )
+        result = fsrs_schedule(prior, grade, now)
+
+        elapsed_days = 0.0
+        if prior.last_review:
+            lr = datetime.fromisoformat(prior.last_review)
             if lr.tzinfo is None:
                 lr = lr.replace(tzinfo=timezone.utc)
-            elapsed_days = (now - lr).total_seconds() / 86400.0
-        else:
-            elapsed_days = 0.0
+            elapsed_days = max(0.0, (now - lr).total_seconds() / 86400.0)
 
-        result = leitner_schedule(ex["box"], grade, now)
         record_grade(
             self._conn,
             exercise_id=ex["exercise_id"],
-            box=result.box,
-            due=result.due,
-            now=now.isoformat(),
+            new_state={
+                "phase": int(result.phase),
+                "step_index": result.step_index,
+                "stability": result.stability,
+                "difficulty": result.difficulty,
+                "reps": result.reps,
+                "last_review": result.last_review,
+                "due": result.due,
+            },
             review={
                 "exercise_id": ex["exercise_id"],
-                "timestamp": now.isoformat(),
-                "grade": grade,
-                "prior_box": ex["box"],
-                "new_box": result.box,
+                "grade": grade_int,
+                "prior_phase": int(prior.phase),
+                "new_phase": int(result.phase),
+                "prior_stability": prior.stability,
+                "new_stability": result.stability,
+                "prior_difficulty": prior.difficulty,
+                "new_difficulty": result.difficulty,
                 "elapsed_days": elapsed_days,
             },
+            now=now.isoformat(),
         )
         self.app.pop_screen()
 
