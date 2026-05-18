@@ -103,7 +103,7 @@ def test_sync_preserves_existing_scheduling_state(tmp_path, db_path):
     conn = init_db(db_path)
     eid = add_exercise(conn, "ex-a", "Manual Title", path="ex-a")
     conn.execute(
-        "UPDATE code_exercises SET box=4, reps=7, due='2099-01-01T00:00:00+00:00' "
+        "UPDATE code_exercises SET phase=2, reps=7, due='2099-01-01T00:00:00+00:00' "
         "WHERE exercise_id=?",
         (eid,),
     )
@@ -111,7 +111,7 @@ def test_sync_preserves_existing_scheduling_state(tmp_path, db_path):
     added = sync_exercises_from_disk(conn, root)
     assert added == []
     ex = get_exercise_by_slug(conn, "ex-a")
-    assert ex["box"] == 4
+    assert ex["phase"] == 2
     assert ex["reps"] == 7
     assert ex["title"] == "Manual Title"
 
