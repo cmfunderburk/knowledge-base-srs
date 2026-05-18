@@ -6,7 +6,7 @@ Two complementary TUI tools:
 
 **SRS (review-gen)** — initial-encoding aid for drilling structured study material through progressive masking and massed/ordered practice. Supports masking cards (text with progressive letter masking) and exact-answer cards (numerical/factual Q&A). Import markdown notes, CSV data, or paste raw text, then drill through practice modes that build recall. A catalog TUI lets you browse and select material across multiple sources and topics. Once material reaches 3+ successful passes, export to Anki for long-term spaced retrieval via FSRS.
 
-**Code Review (code-review)** — Leitner-scheduled spaced practice for programming exercises. Shows a problem statement, opens `$EDITOR` for the user's solution, runs pytest against it, shows a diff vs. the reference, and records a grade (Again/Hard/Good/Easy). Uses a 5-box Leitner system to schedule exercises. Exercises live in `exercises/<slug>/` at the repo root.
+**Code Review (code-review)** — FSRS-scheduled spaced practice for programming exercises. Shows a problem statement, opens `$EDITOR` for the user's solution, runs pytest against it, shows a diff vs. the reference, and records a grade (Again/Hard/Good/Easy). Uses an FSRS state machine (LEARNING → REVIEW → RELEARNING) to schedule exercises. Exercises live in `exercises/<slug>/` at the repo root.
 
 ## Quick Reference
 
@@ -68,7 +68,7 @@ exercises/<slug>/ ──auto-discover──→ data/code_exercises.db ──→ 
 - `fsrs.py` — standard FSRS v6 scheduler (4-button: Again/Hard/Good/Easy), used for recall phase
 
 ### Source files (`code_review/`)
-- `leitner.py` — 5-box Leitner scheduler; `schedule(current_box, grade, now) → LeitnerResult`; grade 1=Again/2=Hard/3=Good/4=Easy; intervals 1/2/4/8/16 days
+- `scheduler.py` — FSRS state machine for code exercises. Three phases: LEARNING (steps 1m/10m/4h/12h), REVIEW (FSRS-scheduled at 0.95 retention via `srs/fsrs.py`), RELEARNING (steps 30m/4h). `schedule(state, grade, now) → ScheduleResult` is the entry point; `initial_state(now)` returns a fresh card. 20m learn-ahead window matches Anki's `collapseTime`.
 - `db.py` — `code_exercises` and `code_review_log` SQLite tables; CRUD; `record_grade()` for atomic scheduling+log write; default DB at `data/code_exercises.db`
 - `runner.py` — writes user code as `submission.py`, runs pytest with `PYTHONPATH` set to the exercise dir, deletes `submission.py` in finally; `compute_diff()` for unified diff vs. reference
 - `tui.py` — `ExerciseListScreen` (due list, reload on resume) + `ReviewScreen` (problem → `$EDITOR` → test results + diff → grade buttons); `main()` entry point. On startup, runs `sync_exercises_from_disk()` to auto-register any unregistered exercise directory (trio of `problem.md`, `test_solution.py`, `solution.py`) found under `exercises/`.
@@ -125,11 +125,12 @@ exercises/
 - `test_solution.py` imports `from submission import <func>` — the runner writes the user's code as `submission.py` and sets `PYTHONPATH` to the exercise dir before running pytest
 - `exercises/**/submission.py` is gitignored (written at runtime, always deleted after the run)
 
-### Leitner scheduling
+### FSRS scheduling
 
-- 5 boxes; intervals: 1 / 2 / 4 / 8 / 16 days
-- grade 1=Again → box 1, grade 2=Hard → stay, grade 3=Good → +1 box, grade 4=Easy → +2 boxes
-- Box 5 is the ceiling
+- Three phases: LEARNING → REVIEW → RELEARNING. Pure state-machine in `scheduler.py`; FSRS math lives in `srs/fsrs.py`.
+- Learning steps: `1m, 10m, 4h, 12h`. Relearning steps: `30m, 4h`. Desired retention: `0.95`. All hardcoded; edit `scheduler.py` to tune.
+- Lapse (REVIEW → Again): stability is set to `lapse_stability(...)` computed at lapse time and preserved through relearning. On return to REVIEW, that stability schedules the next interval.
+- Learn-ahead window of 20m means a card with a sub-day step shows up in the due list slightly early when the rest of the queue is clear.
 
 ### DB layer
 
