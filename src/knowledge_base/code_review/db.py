@@ -8,28 +8,35 @@ EXERCISES_DIR = _REPO_ROOT / "exercises"
 
 _DDL_EXERCISES = """
 CREATE TABLE IF NOT EXISTS code_exercises (
-    exercise_id  INTEGER PRIMARY KEY AUTOINCREMENT,
-    slug         TEXT    NOT NULL UNIQUE,
-    title        TEXT    NOT NULL,
-    path         TEXT    NOT NULL DEFAULT '',
-    source       TEXT    NOT NULL DEFAULT '',
-    box          INTEGER NOT NULL DEFAULT 1,
-    last_review  TEXT,
-    due          TEXT,
-    reps         INTEGER NOT NULL DEFAULT 0,
-    added        TEXT    NOT NULL
+    exercise_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug          TEXT    NOT NULL UNIQUE,
+    title         TEXT    NOT NULL,
+    path          TEXT    NOT NULL DEFAULT '',
+    source        TEXT    NOT NULL DEFAULT '',
+    phase         INTEGER NOT NULL DEFAULT 1,
+    step_index    INTEGER NOT NULL DEFAULT 0,
+    stability     REAL    NOT NULL DEFAULT 0.0,
+    difficulty    REAL    NOT NULL DEFAULT 0.0,
+    last_review   TEXT,
+    due           TEXT,
+    reps          INTEGER NOT NULL DEFAULT 0,
+    added         TEXT    NOT NULL
 );
 """
 
 _DDL_REVIEW_LOG = """
 CREATE TABLE IF NOT EXISTS code_review_log (
-    review_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-    exercise_id  INTEGER NOT NULL REFERENCES code_exercises(exercise_id),
-    timestamp    TEXT    NOT NULL,
-    grade        INTEGER NOT NULL,
-    prior_box    INTEGER NOT NULL,
-    new_box      INTEGER NOT NULL,
-    elapsed_days REAL    NOT NULL
+    review_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    exercise_id      INTEGER NOT NULL REFERENCES code_exercises(exercise_id),
+    timestamp        TEXT    NOT NULL,
+    grade            INTEGER NOT NULL,
+    prior_phase      INTEGER NOT NULL,
+    new_phase        INTEGER NOT NULL,
+    prior_stability  REAL    NOT NULL,
+    new_stability    REAL    NOT NULL,
+    prior_difficulty REAL    NOT NULL,
+    new_difficulty   REAL    NOT NULL,
+    elapsed_days     REAL    NOT NULL
 );
 """
 
@@ -44,32 +51,38 @@ LAST_MIGRATION_PURGE: list[str] = []
 def init_db(db_path: str | Path = DB_PATH) -> sqlite3.Connection:
     global LAST_MIGRATION_PURGE
     LAST_MIGRATION_PURGE = []
+
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
+
+    # Detect old box-column schema and drop both tables if present
     with conn:
+        existing_tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('code_exercises','code_review_log')"
+            ).fetchall()
+        }
+        if "code_exercises" in existing_tables:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(code_exercises)").fetchall()}
+            if "box" in cols:
+                purged = [
+                    row[0] for row in conn.execute(
+                        "SELECT slug FROM code_exercises"
+                    ).fetchall()
+                ]
+                conn.execute("DROP TABLE IF EXISTS code_review_log")
+                conn.execute("DROP TABLE IF EXISTS code_exercises")
+                LAST_MIGRATION_PURGE = purged
+
         conn.execute(_DDL_EXERCISES)
         conn.execute(_DDL_REVIEW_LOG)
         for stmt in _DDL_INDEXES.strip().splitlines():
             stmt = stmt.strip()
             if stmt:
                 conn.execute(stmt)
-        cols = {row[1] for row in conn.execute("PRAGMA table_info(code_exercises)").fetchall()}
-        if "path" not in cols:
-            conn.execute("ALTER TABLE code_exercises ADD COLUMN path TEXT NOT NULL DEFAULT ''")
-        purged = [
-            row[0] for row in conn.execute(
-                "SELECT slug FROM code_exercises WHERE path = ''"
-            ).fetchall()
-        ]
-        if purged:
-            conn.execute(
-                "DELETE FROM code_review_log WHERE exercise_id IN "
-                "(SELECT exercise_id FROM code_exercises WHERE path = '')"
-            )
-            conn.execute("DELETE FROM code_exercises WHERE path = ''")
-            LAST_MIGRATION_PURGE = purged
+
     return conn
 
 
