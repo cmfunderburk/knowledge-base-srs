@@ -36,10 +36,12 @@ from knowledge_base.code_review.db import (
 )
 from knowledge_base.code_review.runner import compute_side_by_side_diff, run_tests
 from knowledge_base.code_review.scheduler import (
+    CardState,
     LEARN_AHEAD_SEC,
     Phase,
     schedule as fsrs_schedule,
 )
+from knowledge_base.srs.fsrs import Grade
 
 
 # ---------------------------------------------------------------------------
@@ -134,10 +136,12 @@ class ExerciseListScreen(Screen):
         as_of = (now + timedelta(seconds=LEARN_AHEAD_SEC)).isoformat()
         exercises = get_due_exercises(self._conn, as_of)
         if not exercises:
-            # If there are learning cards beyond learn-ahead, surface when next one is due.
+            # If there are learning/relearning cards beyond learn-ahead, surface when next one is due.
             future = [
                 e for e in get_all_exercises(self._conn)
-                if e["due"] is not None and datetime.fromisoformat(e["due"]) > now + timedelta(seconds=LEARN_AHEAD_SEC)
+                if e["due"] is not None
+                and e["phase"] in (Phase.LEARNING, Phase.RELEARNING)
+                and datetime.fromisoformat(e["due"]) > now + timedelta(seconds=LEARN_AHEAD_SEC)
             ]
             if future:
                 future.sort(key=lambda e: e["due"])
@@ -527,8 +531,6 @@ class ReviewScreen(Screen):
 
         # SRS mode
         grade_int = int(event.button.id.split("-")[1])  # "grade-1" → 1
-        from knowledge_base.srs.fsrs import Grade
-        from knowledge_base.code_review.scheduler import CardState
         grade = Grade(grade_int)
         now = datetime.now(timezone.utc)
         ex = self._exercise
