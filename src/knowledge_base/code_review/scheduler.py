@@ -107,6 +107,8 @@ def schedule(state: CardState, grade: Grade, now: datetime) -> ScheduleResult:
         return _schedule_learning(state, grade, now)
     if state.phase == Phase.REVIEW:
         return _schedule_review(state, grade, now)
+    if state.phase == Phase.RELEARNING:
+        return _schedule_relearning(state, grade, now)
     raise ValueError(f"unknown phase: {state.phase!r}")
 
 
@@ -164,8 +166,19 @@ def _schedule_review(state: CardState, grade: Grade, now: datetime) -> ScheduleR
     elapsed_days = max(0.0, (now - last_review).total_seconds() / 86400.0)
 
     if grade == Grade.AGAIN:
-        # Handled in Task 5
-        raise NotImplementedError("REVIEW Again handled in Task 5")
+        retrievability = compute_retrievability(elapsed_days, state.stability)
+        lapse_s = lapse_stability(state.stability, state.difficulty, retrievability)
+        new_difficulty = update_difficulty(state.difficulty, grade)
+        due = (now + timedelta(seconds=RELEARNING_STEPS_SEC[0])).isoformat()
+        return ScheduleResult(
+            phase=Phase.RELEARNING,
+            step_index=0,
+            stability=lapse_s,
+            difficulty=new_difficulty,
+            reps=state.reps + 1,
+            last_review=now.isoformat(),
+            due=due,
+        )
 
     retrievability = compute_retrievability(elapsed_days, state.stability)
     new_stability = recall_stability(state.stability, state.difficulty, retrievability, grade)
@@ -178,6 +191,49 @@ def _schedule_review(state: CardState, grade: Grade, now: datetime) -> ScheduleR
         step_index=0,
         stability=new_stability,
         difficulty=new_difficulty,
+        reps=state.reps + 1,
+        last_review=now.isoformat(),
+        due=due,
+    )
+
+
+def _return_to_review(state: CardState, now: datetime) -> ScheduleResult:
+    """Return to REVIEW from RELEARNING with the lapse-time stability/difficulty preserved."""
+    interval = compute_interval(state.stability, desired_retention=DESIRED_RETENTION)
+    due = (now + timedelta(days=interval)).isoformat()
+    return ScheduleResult(
+        phase=Phase.REVIEW,
+        step_index=0,
+        stability=state.stability,
+        difficulty=state.difficulty,
+        reps=state.reps + 1,
+        last_review=now.isoformat(),
+        due=due,
+    )
+
+
+def _schedule_relearning(state: CardState, grade: Grade, now: datetime) -> ScheduleResult:
+    if state.step_index < 0 or state.step_index >= len(RELEARNING_STEPS_SEC):
+        raise ValueError(f"relearning step_index out of range: {state.step_index}")
+
+    if grade == Grade.EASY:
+        return _return_to_review(state, now)
+
+    if grade == Grade.AGAIN:
+        new_step = 0
+    elif grade == Grade.HARD:
+        new_step = state.step_index
+    else:  # GOOD
+        new_step = state.step_index + 1
+        if new_step >= len(RELEARNING_STEPS_SEC):
+            return _return_to_review(state, now)
+
+    due = (now + timedelta(seconds=RELEARNING_STEPS_SEC[new_step])).isoformat()
+    return ScheduleResult(
+        phase=Phase.RELEARNING,
+        step_index=new_step,
+        stability=state.stability,        # lapse-time value preserved
+        difficulty=state.difficulty,
         reps=state.reps + 1,
         last_review=now.isoformat(),
         due=due,

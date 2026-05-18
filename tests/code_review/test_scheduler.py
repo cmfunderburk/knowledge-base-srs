@@ -173,3 +173,117 @@ def test_review_grade_increments_reps():
     state = _review_state(reps=7)
     result = schedule(state, Grade.GOOD, NOW)
     assert result.reps == 8
+
+
+from knowledge_base.srs.fsrs import lapse_stability
+
+
+def _relearning_state(step_index: int = 0, stability: float = 2.0,
+                      difficulty: float = 6.0) -> CardState:
+    return CardState(
+        phase=Phase.RELEARNING,
+        step_index=step_index,
+        stability=stability,
+        difficulty=difficulty,
+        reps=10,
+        last_review=(NOW - timedelta(minutes=30)).isoformat(),
+        due=NOW.isoformat(),
+    )
+
+
+def test_review_again_lapses_to_relearning_step_0_with_30m_delay():
+    state = _review_state(stability=3.0, difficulty=5.0,
+                          last_review_iso=(NOW - timedelta(days=4)).isoformat())
+    result = schedule(state, Grade.AGAIN, NOW)
+    assert result.phase == Phase.RELEARNING
+    assert result.step_index == 0
+    assert _seconds_until(NOW, result.due) == 1800
+
+    # Stability stored on the card is the lapse_stability computed at lapse time
+    elapsed = 4.0
+    r = compute_retrievability(elapsed, 3.0)
+    expected_s = lapse_stability(3.0, 5.0, r)
+    assert result.stability == pytest.approx(expected_s, rel=1e-9)
+
+    # Difficulty updates immediately at lapse via update_difficulty(_, Again)
+    expected_d = update_difficulty(5.0, Grade.AGAIN)
+    assert result.difficulty == pytest.approx(expected_d, rel=1e-9)
+
+
+def test_relearning_again_resets_to_step_0():
+    state = _relearning_state(step_index=1)  # currently on 4h step
+    result = schedule(state, Grade.AGAIN, NOW)
+    assert result.phase == Phase.RELEARNING
+    assert result.step_index == 0
+    assert _seconds_until(NOW, result.due) == 1800
+    # Lapse-time stability preserved
+    assert result.stability == state.stability
+    assert result.difficulty == state.difficulty
+
+
+def test_relearning_hard_repeats_current_step():
+    state = _relearning_state(step_index=1)
+    result = schedule(state, Grade.HARD, NOW)
+    assert result.phase == Phase.RELEARNING
+    assert result.step_index == 1
+    assert _seconds_until(NOW, result.due) == 14400
+
+
+def test_relearning_good_advances_one_step():
+    state = _relearning_state(step_index=0)  # 30m → next is 4h
+    result = schedule(state, Grade.GOOD, NOW)
+    assert result.phase == Phase.RELEARNING
+    assert result.step_index == 1
+    assert _seconds_until(NOW, result.due) == 14400
+
+
+def test_relearning_good_past_last_step_returns_to_review_with_lapse_stability():
+    state = _relearning_state(step_index=1, stability=2.5, difficulty=6.0)
+    result = schedule(state, Grade.GOOD, NOW)
+    assert result.phase == Phase.REVIEW
+    # Stability is the lapse-time value preserved on the card, NOT re-derived
+    assert result.stability == 2.5
+    assert result.difficulty == 6.0
+    # Interval scheduled via compute_interval at 0.95
+    from knowledge_base.srs.fsrs import compute_interval as _ci
+    expected_interval = _ci(2.5, desired_retention=0.95)
+    expected_due = (NOW + timedelta(days=expected_interval)).isoformat()
+    assert result.due == expected_due
+
+
+def test_relearning_easy_returns_to_review_immediately():
+    state = _relearning_state(step_index=0, stability=2.5, difficulty=6.0)
+    result = schedule(state, Grade.EASY, NOW)
+    assert result.phase == Phase.REVIEW
+    assert result.stability == 2.5
+    assert result.difficulty == 6.0
+
+
+def test_full_lapse_roundtrip_preserves_lapse_stability():
+    """REVIEW → Again → RELEARNING → Good → Good → REVIEW with stability set at lapse."""
+    s0 = _review_state(stability=4.0, difficulty=5.5,
+                       last_review_iso=(NOW - timedelta(days=5)).isoformat())
+    t1 = NOW
+    after_lapse = schedule(s0, Grade.AGAIN, t1)
+    s1 = CardState(
+        phase=after_lapse.phase, step_index=after_lapse.step_index,
+        stability=after_lapse.stability, difficulty=after_lapse.difficulty,
+        reps=after_lapse.reps, last_review=after_lapse.last_review, due=after_lapse.due,
+    )
+
+    t2 = t1 + timedelta(minutes=30)
+    after_good_1 = schedule(s1, Grade.GOOD, t2)
+    assert after_good_1.phase == Phase.RELEARNING
+    assert after_good_1.step_index == 1
+
+    s2 = CardState(
+        phase=after_good_1.phase, step_index=after_good_1.step_index,
+        stability=after_good_1.stability, difficulty=after_good_1.difficulty,
+        reps=after_good_1.reps, last_review=after_good_1.last_review, due=after_good_1.due,
+    )
+
+    t3 = t2 + timedelta(hours=4)
+    after_good_2 = schedule(s2, Grade.GOOD, t3)
+    assert after_good_2.phase == Phase.REVIEW
+    # The stability that re-enters REVIEW is the lapse-time-computed value from step 1
+    assert after_good_2.stability == after_lapse.stability
