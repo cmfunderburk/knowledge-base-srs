@@ -65,6 +65,24 @@ def test_differentiate_twice(sub):
     assert list(p.coefficients) == [0, 6]
 
 
+def test_repr_is_defined(sub):
+    # Default object.__repr__ returns '<...Polynomial object at 0x...>',
+    # which is not useful. The student must override __repr__.
+    p = sub.Polynomial([1, 2, 3])
+    r = repr(p)
+    assert not r.startswith("<"), (
+        f"Polynomial must define __repr__; got the default object repr: {r!r}"
+    )
+
+
+def test_repr_roundtrip(sub):
+    # Convention: eval(repr(p)) should reconstruct an equivalent Polynomial.
+    p = sub.Polynomial([1, 2, 3])
+    rebuilt = eval(repr(p), {"Polynomial": sub.Polynomial})
+    assert isinstance(rebuilt, sub.Polynomial)
+    assert list(rebuilt.coefficients) == [1, 2, 3]
+
+
 def test_no_imports():
     source = Path(__file__).with_name("submission.py").read_text()
     tree = ast.parse(source)

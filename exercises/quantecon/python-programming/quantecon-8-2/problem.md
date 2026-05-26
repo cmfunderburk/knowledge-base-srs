@@ -12,5 +12,6 @@ Provide methods that
 
 1. Evaluate the polynomial, returning $p(x)$ for any $x$. (Implement this as `__call__` so the instance is callable.)
 2. Differentiate the polynomial in place: replace `self.coefficients` with those of its derivative $p'$. Name this method `differentiate`. It should also return the new coefficients.
+3. Implement `__repr__` so that the instance has a useful printable form.
 
 **Avoid using any `import` statements.**

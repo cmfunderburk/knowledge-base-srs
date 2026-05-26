@@ -12,6 +12,9 @@ class Polynomial:
             y += a * x**i
         return y
 
+    def __repr__(self):
+        return f"Polynomial({self.coefficients})"
+
     def differentiate(self):
         new_coefficients = []
         for i, a in enumerate(self.coefficients):
