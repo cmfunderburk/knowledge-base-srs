@@ -127,7 +127,7 @@ exercises/quantecon/intro/<slug>/
 - Dir contains `problem.md` + `solution.py` + `test_solution.py` → register `kind='code'`
 - Dir contains `problem.md` + `solution.ipynb` + `starter.ipynb` + `test_solution.py` → register `kind='notebook'`
 - Dir contains both `solution.py` and `solution.ipynb` → log error, skip (ambiguous)
-- Dir contains a notebook trio missing `starter.ipynb` → log error, skip (notebook trio is incomplete)
+- Dir contains `problem.md` + `solution.ipynb` + `test_solution.py` but no `starter.ipynb` → log error, skip (notebook file set is incomplete; starter is required for the copy-to-submission step)
 
 ### Migration
 
@@ -217,12 +217,16 @@ launch_session(exercise_dir) -> SessionHandle
   ├─ 1. shutil.copy(starter.ipynb, submission.ipynb)
   │
   ├─ 2. proc = subprocess.Popen(
-  │        ["jupyter", "lab", "submission.ipynb", "--port=0"],
+  │        ["jupyter", "lab", "submission.ipynb",
+  │         "--ServerApp.port=0",         # OS picks a free port
+  │         "--ServerApp.open_browser=True"],
   │        cwd=exercise_dir,
-  │        stdout=subprocess.DEVNULL,
-  │        stderr=subprocess.DEVNULL,
+  │        stdout=subprocess.PIPE,        # captured so we can extract the URL
+  │        stderr=subprocess.STDOUT,
   │        start_new_session=True,
   │    )
+  │    # TUI surfaces the URL by tailing proc.stdout in a background task,
+  │    # so if browser auto-launch fails the user can copy the URL manually.
   │
   ├─ 3. return SessionHandle(proc, exercise_dir) to TUI
   │     (TUI shows "Jupyter open…" + press-Enter prompt with confirmation modal)
@@ -253,7 +257,7 @@ cleanup_session(handle)  [always called in finally]
 
 ### Subprocess management
 
-Spawning as `Popen` (not `run`) is essential — Jupyter Lab is a long-running server. The TUI doesn't wait on it; the user does. `start_new_session=True` isolates the Jupyter process group from the TUI's signal handling. `--port=0` lets Jupyter pick a free port (avoids conflicts with any user-launched Jupyter).
+Spawning as `Popen` (not `run`) is essential — Jupyter Lab is a long-running server. The TUI doesn't wait on it; the user does. `start_new_session=True` isolates the Jupyter process group from the TUI's signal handling. `--ServerApp.port=0` lets the OS pick a free port (avoids conflicts with any user-launched Jupyter). Capturing stdout/stderr lets the TUI surface the access URL if browser auto-launch fails.
 
 ### Why `cwd=exercise_dir`
 
@@ -268,7 +272,7 @@ Tests run as a separate `pytest` subprocess (not in-process) for the same reason
 | Failure | Handling |
 |---|---|
 | `jupyter` not installed | Detect at session start; raise with install hint before copying starter. |
-| Port conflict | `--port=0` lets Jupyter pick a free port. |
+| Port conflict | `--ServerApp.port=0` lets the OS pick a free port. |
 | User closes browser but Jupyter keeps running | Enter in TUI → tests run against last-saved `submission.ipynb` → cleanup terminates the orphan server. |
 | User presses Enter before saving in Jupyter | Tests run against the previous save (possibly unmodified starter) → tests fail loudly → user retries. Confirmation modal mitigates accidental case. |
 | `testbook` kernel hangs mid-execution | pytest timeout (120s) fires; surface as test failure with "kernel hung — retry?" hint. |
@@ -556,7 +560,11 @@ The thin slice is done when, in order:
 3. The user working in the notebook, saving, returning to the TUI, and confirming the modal runs tests against `submission.ipynb`.
 4. A correct solution produces pytest green; the source-cell diff of `submission.ipynb` vs `solution.ipynb` displays; grading writes to `data/code_exercises.db`; the exercise re-appears on its FSRS-scheduled due date.
 5. An incorrect solution produces specific per-cell failures naming the wrong cell (via `test_cell2_*`, `test_cell3_*` test names).
-6. `pytest tests/` (project-wide) passes, including `test_solution_passes` in the new exercise and the `tests/datasets/` unit tests for `gdp_panel` and `population_panel`.
+6. `pytest tests/` (project-wide) passes, including:
+   - `tests/datasets/` unit tests for `gdp_panel` and `population_panel` (determinism, shape, structural columns)
+   - `tests/code_review/test_notebook_runner.py` covering `launch_session` / `run_tests` / `compute_notebook_diff` / `cleanup_session` (using a tiny test-fixture notebook in `tests/fixtures/`, not the real Ch 2 exercise)
+   - `test_solution_passes` in the new exercise (the meta-test that runs `solution.ipynb` through `test_solution.py`)
+   - All existing tests continue to pass
 7. `submission.ipynb` is gitignored; no stray files left after a session (whether passed, failed, or abandoned).
 8. Existing `uv run code-review` and all existing exercises behave identically to before (regression check).
 
